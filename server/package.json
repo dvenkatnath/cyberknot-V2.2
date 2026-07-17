@@ -1,0 +1,17 @@
+{
+  "name": "aegis-chat-whatsapp",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Aegis Secure Chat with WhatsApp-style encrypted blob relay for large files",
+  "main": "keyserver.js",
+  "scripts": {
+    "start": "node keyserver.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "express": "^4.21.2",
+    "ws": "^8.18.0"
+  }
+}
