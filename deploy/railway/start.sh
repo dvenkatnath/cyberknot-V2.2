@@ -24,7 +24,7 @@ if [ -z "${CORS_ORIGIN:-}" ]; then
 fi
 
 if [ -z "${LOG_SECRET:-}" ] || [ "${#LOG_SECRET}" -lt 32 ]; then
-  export LOG_SECRET="$(openssl rand -hex 32)"
+  export LOG_SECRET="$(node -e "process.stdout.write(require('crypto').randomBytes(32).toString('hex'))")"
 fi
 
 # Railway has no coturn sidecar. For working TURN relay, set on Railway:
