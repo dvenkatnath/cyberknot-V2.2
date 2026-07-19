@@ -11,7 +11,7 @@ docker rm -f aegis-chat 2>/dev/null || true
 docker run -d \
   --name aegis-chat \
   --restart unless-stopped \
-  -p 8080:8080 \
+  -p 127.0.0.1:8080:8080 \
   --env-file .env \
   -v aegis-data:/app/data \
   aegis-chat
