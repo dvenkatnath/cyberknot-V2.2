@@ -378,15 +378,47 @@ function rateLimit(req, res, next) {
   next();
 }
 
+/*
+ * Separate, much more permissive limiter for blob part transfer + meta reads.
+ * Large-file transfers legitimately need one request per chunk (BLOB_MAX_PART_BYTES,
+ * default 6 MB) in each direction, so a 500 MB file can need 160+ requests on its own.
+ * These routes already require a valid, hard-to-guess blobId + per-blob token, so the
+ * abuse surface is much smaller than the unauthenticated key-registration endpoint —
+ * a higher ceiling here just prevents legitimate large-file transfers from tripping
+ * the same bucket used to stop registration spam.
+ */
+const ratePartBuckets = new Map();
+const RATE_PART_MAX = 5000;
+
+function rateLimitParts(req, res, next) {
+  const ip  = req.ip || req.connection.remoteAddress || 'unknown';
+  const now = Date.now();
+  let   bucket = ratePartBuckets.get(ip);
+
+  if (!bucket || now - bucket.windowStart > RATE_WINDOW_MS) {
+    bucket = { windowStart: now, count: 0 };
+    ratePartBuckets.set(ip, bucket);
+  }
+
+  bucket.count++;
+  if (bucket.count > RATE_PART_MAX) {
+    return res.status(429).json({ error: 'Too many requests. Try again later.' });
+  }
+  next();
+}
+
 /* Periodically clear stale buckets to prevent unbounded Map growth */
 setInterval(() => {
   const cutoff = Date.now() - RATE_WINDOW_MS;
   for (const [ip, bucket] of rateBuckets.entries()) {
     if (bucket.windowStart < cutoff) rateBuckets.delete(ip);
   }
+  for (const [ip, bucket] of ratePartBuckets.entries()) {
+    if (bucket.windowStart < cutoff) ratePartBuckets.delete(ip);
+  }
 }, RATE_WINDOW_MS);
 
-const blobStore = createBlobStore({ dataDir: DATA_DIR, rateLimit });
+const blobStore = createBlobStore({ dataDir: DATA_DIR, rateLimit, rateLimitParts });
 blobStore.mount(app, express);
 
 /* ---------- timing-safe proof verification (FIX-E) ---------- */

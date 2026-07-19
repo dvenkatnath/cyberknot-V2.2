@@ -14,7 +14,10 @@ function isValidProof(proof) {
   return typeof proof === 'string' && proof.length > 0 && proof.length <= 512;
 }
 
-function createBlobStore({ dataDir, rateLimit }) {
+function createBlobStore({ dataDir, rateLimit, rateLimitParts }) {
+  // Fall back to the strict limiter if a looser one wasn't supplied, so this
+  // module still works standalone / in tests.
+  const partLimit = rateLimitParts || rateLimit;
   const blobRoot = path.join(dataDir, 'blobs');
   const manifestFile = path.join(blobRoot, 'manifest.json');
   /** @type {Map<string, object>} */
@@ -127,7 +130,7 @@ function createBlobStore({ dataDir, rateLimit }) {
     app.put('/api/v1/blobs/:blobId/parts/:partIndex', express.raw({
       type: 'application/octet-stream',
       limit: BLOB_MAX_PART_BYTES
-    }), rateLimit, (req, res) => {
+    }), partLimit, (req, res) => {
       const { blobId, partIndex } = req.params;
       const token = req.get('x-blob-token') || '';
       const index = Number(partIndex);
@@ -174,7 +177,7 @@ function createBlobStore({ dataDir, rateLimit }) {
       res.json({ ok: true, blobId, complete: true });
     });
 
-    app.get('/api/v1/blobs/:blobId/parts/:partIndex', rateLimit, (req, res) => {
+    app.get('/api/v1/blobs/:blobId/parts/:partIndex', partLimit, (req, res) => {
       const { blobId, partIndex } = req.params;
       const token = req.get('x-blob-token') || req.query.token || '';
       const index = Number(partIndex);
@@ -191,7 +194,7 @@ function createBlobStore({ dataDir, rateLimit }) {
       res.sendFile(filePath);
     });
 
-    app.get('/api/v1/blobs/:blobId/meta', rateLimit, (req, res) => {
+    app.get('/api/v1/blobs/:blobId/meta', partLimit, (req, res) => {
       const { blobId } = req.params;
       const token = req.get('x-blob-token') || req.query.token || '';
       const meta = getManifest(blobId);
