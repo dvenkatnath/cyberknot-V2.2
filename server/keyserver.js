@@ -339,6 +339,7 @@ async function buildIceConfigResponse() {
 
 /* ---------- Express app ---------- */
 const app = express();
+app.disable('x-powered-by');
 app.use(express.json({ limit: '64kb' }));
 
 /* CORS */
