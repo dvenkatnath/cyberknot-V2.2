@@ -11,10 +11,13 @@
     X-Frame-Options "DENY"
     Referrer-Policy "no-referrer"
     Permissions-Policy "camera=(), microphone=(), geolocation=()"
-    # CSP: allow scripts only from same origin (the WASM bundle is inlined via
-    # SINGLE_FILE=1; no external script hosts needed).  wasm-unsafe-eval is
-    # required for Emscripten WASM instantiation in all browsers.
-    Content-Security-Policy "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; connect-src 'self' wss: stun: turn:; img-src 'self' data:; style-src 'self' 'unsafe-inline'; frame-ancestors 'none';"
+    # CSP: index.html is a single file with the entire app inline (no build-time
+    # nonce/hash pipeline), so script-src needs 'unsafe-inline' or every inline
+    # <script> gets silently blocked. wasm-unsafe-eval is required for Emscripten
+    # WASM instantiation. connect-src needs blob: so fetch() against the blob:
+    # object URLs used for downloaded files isn't blocked (see e2e-test.mjs,
+    # which caught this the hard way against production).
+    Content-Security-Policy "default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; connect-src 'self' wss: stun: turn: blob:; img-src 'self' data:; style-src 'self' 'unsafe-inline'; frame-ancestors 'none'; base-uri 'none';"
   }
 
   handle /api/* {
