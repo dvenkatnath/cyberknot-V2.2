@@ -2390,6 +2390,21 @@
         function resetConnection() {
             closeAllPeers();
             chatBox.innerHTML = '';
+
+            // Clear the invite session so a stale link can't be reused, and
+            // let the host create a fresh one.
+            currentInviteId = null;
+            inviteRole = null;
+            roomSecretInput.value = '';
+            guestInviteLinkArea.value = '';
+            copyGuestLinkBtn.disabled = true;
+            createInviteBtn.disabled = false;
+            history.replaceState(null, '', location.pathname);
+
+            waitingGuests.clear();
+            renderWaitingRoom();
+
+            updateSecurityPanel();
             addMessage('Connection reset. All peers disconnected.', 'system');
         }
 
