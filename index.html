@@ -1742,7 +1742,8 @@
                     totalChunks: payload.totalChunks,
                     chunks: new Array(payload.totalChunks),
                     received: 0,
-                    version: 2
+                    version: 2,
+                    fromLabel
                 });
                 if (inviteRole === 'host') broadcastToOthers(peer.connId, payload);
             } else if (payload.type === 'file-start') {
