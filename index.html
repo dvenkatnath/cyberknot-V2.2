@@ -47,7 +47,10 @@
         #guest-invite-link { font-size: 0.72rem; min-height: 56px; }
         .invite-actions { display: flex; flex-direction: column; gap: 8px; }
         .invite-actions button { font-size: 0.85rem; padding: 10px; }
+        .header-actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
         #create-invite-btn { background: var(--teal); color: white; }
+        #reset-btn { background: #FDBA74; color: #3a2410; }
+        #help-btn, #about-btn { background: transparent; border: 1px solid rgba(255,255,255,0.18); color: var(--text-muted); }
         #copy-guest-link-btn { background: transparent; border: 1px solid var(--teal); color: var(--teal); }
         #name-modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.6); display: none; align-items: center; justify-content: center; z-index: 50; }
         #name-modal-overlay.show { display: flex; }
@@ -90,9 +93,12 @@
     </div>
     <header>
         <h1><img src="/logo.png" alt="" class="app-logo" width="36" height="36"><span class="status-dot" id="status-dot"></span> Aegis Secure Chat <span style="font-size:0.75rem;color:var(--amber);font-weight:normal;">Media</span></h1>
-        <button id="create-invite-btn">Create Invite</button>
-        <button id="connect-btn" disabled>Connect Peer</button>
-        <button id="reset-btn">Reset</button>
+        <div class="header-actions">
+            <button id="create-invite-btn">🔗 Create Invite</button>
+            <button id="reset-btn">🔄 Reset</button>
+            <button id="help-btn">❓ Help</button>
+            <button id="about-btn">ℹ️ About</button>
+        </div>
     </header>
     <main>
         <aside>
@@ -113,7 +119,7 @@
             <details class="manual-fallback">
                 <summary>Advanced / manual signaling (fallback — not needed for normal use)</summary>
                 <label for="signal-area"><strong>Offer / Answer JSON</strong> (from host — NOT the invite link)</label>
-                <textarea id="signal-area" placeholder="GUEST: Paste the host's Offer JSON here (starts with {&quot;v&quot;:3,&quot;sdp&quot;...}), then click Process Signal.&#10;HOST: After Connect Peer, Offer appears here automatically. Later, paste the guest's Answer JSON here."></textarea>
+                <textarea id="signal-area" placeholder="GUEST: Paste the host's Offer JSON here (starts with {&quot;v&quot;:3,&quot;sdp&quot;...}), then click Process Signal.&#10;HOST: Offer appears here automatically once a guest joins. Later, paste the guest's Answer JSON here."></textarea>
                 <button id="signal-btn">Process Signal</button>
             </details>
 
@@ -248,7 +254,6 @@
         const statusDot = document.getElementById('status-dot');
         const signalArea = document.getElementById('signal-area');
         const roomSecretInput = document.getElementById('room-secret');
-        const connectBtn = document.getElementById('connect-btn');
         const createInviteBtn = document.getElementById('create-invite-btn');
         const copyGuestLinkBtn = document.getElementById('copy-guest-link-btn');
         const guestInviteLinkArea = document.getElementById('guest-invite-link');
@@ -989,7 +994,6 @@
             const guestLink = `${location.origin}${location.pathname}#invite=${guestToken}`;
             guestInviteLinkArea.value = guestLink;
             copyGuestLinkBtn.disabled = false;
-            connectBtn.disabled = false;
             createInviteBtn.disabled = true;
             addMessage('Invite created. Share the guest link directly (Signal, WhatsApp DM, or in-person). Do NOT paste it into Slack, Teams, email, or any platform that previews URLs — those services fetch the link and may log the room secret embedded in it.', 'system');
             updateSecurityPanel();
@@ -1002,7 +1006,6 @@
             const hash = location.hash.slice(1);
             if (!hash) {
                 addMessage('Invite-only mode — host: click Create Invite. Guest: open the shared invite link.', 'system');
-                connectBtn.disabled = true;
                 createInviteBtn.disabled = false;
                 return;
             }
@@ -1031,11 +1034,9 @@
                 if (inviteRole === 'host') {
                     const guestToken = buildInviteToken('guest', payload.inviteId, payload.secret, payload.exp);
                     guestInviteLinkArea.value = `${location.origin}${location.pathname}#invite=${guestToken}`;
-                    connectBtn.disabled = false;
                     addMessage('Host invite loaded — waiting room open.', 'system');
                     connectRelay('host');
                 } else {
-                    connectBtn.disabled = true;
                     document.getElementById('name-modal-overlay').classList.add('show');
                     document.getElementById('guest-name-input').focus();
                 }
@@ -2335,6 +2336,7 @@
 
         function resetConnection() {
             closeAllPeers();
+            chatBox.innerHTML = '';
             addMessage('Connection reset. All peers disconnected.', 'system');
         }
 
@@ -2543,13 +2545,12 @@
             return peer.publishedSignal;
         }
 
-        document.getElementById('connect-btn').onclick = async () => {
-            try {
-                const connId = `manual-${crypto.randomUUID()}`;
-                await generateOffer(connId, null);
-            } catch (err) {
-                addMessage(`Connect failed: ${err.message}`, 'system');
-            }
+        // Dummy handlers for now — Help and About content to be added later.
+        document.getElementById('help-btn').onclick = () => {
+            addMessage('Help — coming soon.', 'system');
+        };
+        document.getElementById('about-btn').onclick = () => {
+            addMessage('About — coming soon.', 'system');
         };
 
         function parseSignalInput(raw) {
@@ -2683,7 +2684,7 @@
             if (candidates.length > 1) {
                 throw new Error('Multiple pending connections — use the waiting room (Admit) for automated signaling, or Reset and connect one guest at a time manually.');
             }
-            throw new Error('No pending connection to apply this signal to. Click Connect Peer first.');
+            throw new Error('No pending connection to apply this signal to. Have the host create an invite and admit a guest first.');
         }
 
         document.getElementById('signal-btn').onclick = async () => {
