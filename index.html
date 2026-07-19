@@ -1732,7 +1732,7 @@
                 handleMsgChunk(payload, fromLabel);
                 if (inviteRole === 'host') broadcastToOthers(peer.connId, payload);
             } else if (payload.type === 'file') {
-                addFileMessage(payload.name, payload.size, payload.data);
+                addFileMessage(payload.name, payload.size, payload.data, fromLabel);
                 if (inviteRole === 'host') broadcastToOthers(peer.connId, payload);
             } else if (payload.type === 'file2-start') {
                 incomingFiles.set(payload.id, {
@@ -1755,7 +1755,7 @@
                 });
                 if (inviteRole === 'host') broadcastToOthers(peer.connId, payload);
             } else if (payload.type === 'file-chunk') {
-                handleFileChunk(payload);
+                handleFileChunk(payload, fromLabel);
                 if (inviteRole === 'host') broadcastToOthers(peer.connId, payload);
             } else if (payload.type === 'file-blob-ref') {
                 downloadBlobFile(peer, payload).catch((err) => {
@@ -1779,7 +1779,7 @@
             handleIncomingPayload(peer, inner);
         }
 
-        function handleFileChunk(payload) {
+        function handleFileChunk(payload, fromLabel) {
             const state = incomingFiles.get(payload.id);
             if (!state) {
                 throw new Error('File chunk received without file-start metadata.');
@@ -1787,7 +1787,7 @@
             state.chunks[payload.index] = base64ToUint8Array(payload.data);
             state.received += 1;
             if (state.received === state.totalChunks) {
-                finalizeIncomingFile({ ...state, id: payload.id });
+                finalizeIncomingFile({ ...state, id: payload.id, fromLabel });
                 incomingFiles.delete(payload.id);
             }
         }
@@ -1851,15 +1851,16 @@
             }
         }
 
-        function addFileMessage(fileName, fileSize, b64Data) {
+        function addFileMessage(fileName, fileSize, b64Data, senderName = null) {
             const blob = new Blob([base64ToUint8Array(b64Data)]);
-            addFileMessageBlob(fileName, fileSize, blob);
+            addFileMessageBlob(fileName, fileSize, blob, senderName);
         }
 
-        function addFileMessageBlob(fileName, fileSize, blob) {
+        function addFileMessageBlob(fileName, fileSize, blob, senderName = null) {
             const div = document.createElement('a');
             div.className = 'msg file received';
-            div.textContent = `📁 ${fileName} (${formatBytes(fileSize)}) - Click to download`;
+            const label = `📁 ${fileName} (${formatBytes(fileSize)}) - Click to download`;
+            div.textContent = senderName ? `${senderName}: ${label}` : label;
             div.href = URL.createObjectURL(blob);
             div.download = fileName;
             chatBox.appendChild(div);
@@ -1940,7 +1941,7 @@
                 merged.set(chunk, offset);
                 offset += chunk.length;
             }
-            addFileMessageBlob(state.name, state.size, new Blob([merged]));
+            addFileMessageBlob(state.name, state.size, new Blob([merged]), state.fromLabel);
         }
 
         function handleFile2Chunk(state, index, bytes) {
@@ -2102,8 +2103,9 @@
                 merged.set(part, offset);
                 offset += part.length;
             }
-            addFileMessageBlob(payload.name, payload.size, new Blob([merged]));
-            addMessage(`Received file via encrypted relay: ${payload.name} (${formatBytes(payload.size)})`, 'received', inviteRole === 'host' ? peer.name : null);
+            const blobFromLabel = inviteRole === 'host' ? peer.name : null;
+            addFileMessageBlob(payload.name, payload.size, new Blob([merged]), blobFromLabel);
+            addMessage(`Received file via encrypted relay: ${payload.name} (${formatBytes(payload.size)})`, 'received', blobFromLabel);
         }
 
         async function sendFileBlobStore(file, onProgress) {
