@@ -10,34 +10,58 @@
     <link rel="apple-touch-icon" href="/apple-touch-icon.png" sizes="180x180">
     <link rel="shortcut icon" href="/favicon.ico">
     <style>
-        :root { --bg-dark: #020817; --panel-bg: rgba(10, 18, 40, 0.85); --teal: #1D9E75; --amber: #EF9F27; --text-main: #e2e8f0; --text-muted: #94a3b8; --red: #f87171; }
+        :root {
+            --bg-dark: #020817; --panel-bg: rgba(10, 18, 40, 0.85);
+            --teal: #1D9E75; --amber: #EF9F27; --red: #f87171;
+            --text-main: #e2e8f0; --text-muted: #94a3b8;
+            --surface-2: rgba(0,0,0,0.3); --overlay: rgba(0,0,0,0.6);
+            --border-03: rgba(255,255,255,0.03); --border-06: rgba(255,255,255,0.06);
+            --border-08: rgba(255,255,255,0.08); --border-1: rgba(255,255,255,0.1);
+            --border-12: rgba(255,255,255,0.12); --border-15: rgba(255,255,255,0.15);
+            --border-18: rgba(255,255,255,0.18);
+            --reset-bg: #FDBA74; --reset-text: #3a2410;
+            --shadow-logo: rgba(201, 162, 39, 0.35);
+        }
+        :root.theme-light {
+            --bg-dark: #eef1f6; --panel-bg: rgba(255, 255, 255, 0.92);
+            --teal: #0f8a63; --amber: #c2760f; --red: #dc2626;
+            --text-main: #1e293b; --text-muted: #5b6472;
+            --surface-2: rgba(0,0,0,0.045); --overlay: rgba(15,23,42,0.35);
+            --border-03: rgba(0,0,0,0.03); --border-06: rgba(0,0,0,0.07);
+            --border-08: rgba(0,0,0,0.09); --border-1: rgba(0,0,0,0.11);
+            --border-12: rgba(0,0,0,0.13); --border-15: rgba(0,0,0,0.16);
+            --border-18: rgba(0,0,0,0.2);
+            --reset-bg: #FDBA74; --reset-text: #3a2410;
+            --shadow-logo: rgba(201, 162, 39, 0.25);
+        }
         * { margin: 0; padding: 0; box-sizing: border-box; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
-        body { background: var(--bg-dark); color: var(--text-main); height: 100vh; display: flex; flex-direction: column; overflow: hidden; }
-        header { background: var(--panel-bg); padding: 15px 20px; border-bottom: 1px solid rgba(255,255,255,0.08); display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; }
+        body { background: var(--bg-dark); color: var(--text-main); height: 100vh; display: flex; flex-direction: column; overflow: hidden; transition: background 0.2s, color 0.2s; }
+        header { background: var(--panel-bg); padding: 15px 20px; border-bottom: 1px solid var(--border-08); display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; }
         h1 { font-size: 1.2rem; letter-spacing: 1px; display: flex; align-items: center; gap: 10px; }
-        .app-logo { width: 36px; height: 36px; object-fit: contain; flex-shrink: 0; filter: drop-shadow(0 0 6px rgba(201, 162, 39, 0.35)); }
+        .app-logo { width: 36px; height: 36px; object-fit: contain; flex-shrink: 0; filter: drop-shadow(0 0 6px var(--shadow-logo)); }
         .status-dot { width: 10px; height: 10px; background: #ef4444; border-radius: 50%; transition: 0.3s; }
         .status-dot.connected { background: var(--teal); box-shadow: 0 0 8px var(--teal); }
         main { display: flex; flex: 1; overflow: hidden; }
         .chat-area { flex: 1; display: flex; flex-direction: column; min-width: 0; }
         #chat-box { flex: 1; overflow-y: auto; padding: 20px; display: flex; flex-direction: column; gap: 15px; }
         .msg { max-width: 70%; padding: 12px 16px; border-radius: 12px 12px 12px 2px; background: rgba(127, 119, 221, 0.1); border: 1px solid rgba(127, 119, 221, 0.3); font-size: 0.95rem; word-break: break-word; }
-        .msg.system { max-width: 100%; color: var(--text-muted); font-size: 0.85rem; border-color: rgba(255,255,255,0.08); background: rgba(255,255,255,0.03); }
+        .msg.system { max-width: 100%; color: var(--text-muted); font-size: 0.85rem; border-color: var(--border-08); background: var(--border-03); }
         .msg.sent { align-self: flex-end; border-radius: 12px 12px 2px 12px; background: rgba(29, 158, 117, 0.1); border-color: rgba(29, 158, 117, 0.3); }
         .msg.file { border-color: var(--amber); background: rgba(239, 159, 39, 0.1); cursor: pointer; text-decoration: none; color: var(--amber); display: block; }
-        .input-area { padding: 15px; background: var(--panel-bg); border-top: 1px solid rgba(255,255,255,0.08); display: flex; gap: 10px; }
+        .input-area { padding: 15px; background: var(--panel-bg); border-top: 1px solid var(--border-08); display: flex; gap: 10px; }
         #file-transfer-banner { display: none; padding: 10px 15px; background: rgba(239, 159, 39, 0.12); border-top: 1px solid rgba(239, 159, 39, 0.35); color: var(--amber); font-size: 0.85rem; line-height: 1.4; }
         #file-transfer-banner.show { display: block; }
-        input[type="text"], input[type="password"] { flex: 1; padding: 12px; background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.1); border-radius: 8px; color: var(--text-main); outline: none; }
+        input[type="text"], input[type="password"] { flex: 1; padding: 12px; background: var(--surface-2); border: 1px solid var(--border-1); border-radius: 8px; color: var(--text-main); outline: none; }
         input[type="text"]:focus, input[type="password"]:focus { border-color: var(--teal); }
-        button { padding: 12px 20px; border: none; border-radius: 8px; cursor: pointer; font-weight: bold; transition: 0.2s; }
+        button { display: inline-flex; align-items: center; justify-content: center; gap: 8px; padding: 12px 20px; border: none; border-radius: 8px; cursor: pointer; font-weight: bold; transition: 0.2s; }
         button:disabled { opacity: 0.45; cursor: not-allowed; }
+        .icon { width: 18px; height: 18px; flex-shrink: 0; display: block; }
         #send-btn { background: var(--teal); color: white; }
         #file-btn { background: transparent; border: 1px solid var(--amber); color: var(--amber); }
-        aside { width: 280px; background: var(--panel-bg); border-right: 1px solid rgba(255,255,255,0.08); padding: 20px; display: flex; flex-direction: column; gap: 12px; overflow-y: auto; }
+        aside { width: 280px; background: var(--panel-bg); border-right: 1px solid var(--border-08); padding: 20px; display: flex; flex-direction: column; gap: 12px; overflow-y: auto; }
         aside label { font-size: 0.8rem; color: var(--text-muted); }
-        textarea { min-height: 120px; background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.1); border-radius: 8px; color: var(--text-muted); padding: 10px; resize: vertical; font-family: monospace; font-size: 0.75rem; }
-        #security-panel { font-size: 0.78rem; line-height: 1.6; color: var(--text-muted); border: 1px solid rgba(255,255,255,0.08); border-radius: 8px; padding: 10px; }
+        textarea { min-height: 120px; background: var(--surface-2); border: 1px solid var(--border-1); border-radius: 8px; color: var(--text-muted); padding: 10px; resize: vertical; font-family: monospace; font-size: 0.75rem; }
+        #security-panel { font-size: 0.78rem; line-height: 1.6; color: var(--text-muted); border: 1px solid var(--border-08); border-radius: 8px; padding: 10px; }
         #security-panel .ok { color: var(--teal); }
         #security-panel .bad { color: var(--red); }
         #fingerprint-display { font-family: monospace; font-size: 0.72rem; word-break: break-all; color: var(--text-muted); }
@@ -49,27 +73,31 @@
         .invite-actions button { font-size: 0.85rem; padding: 10px; }
         .header-actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
         #create-invite-btn { background: var(--teal); color: white; }
-        #reset-btn { background: #FDBA74; color: #3a2410; }
-        #help-btn, #about-btn { background: transparent; border: 1px solid rgba(255,255,255,0.18); color: var(--text-muted); }
+        #reset-btn { background: var(--reset-bg); color: var(--reset-text); }
+        #help-btn, #about-btn { background: transparent; border: 1px solid var(--border-18); color: var(--text-muted); }
+        #theme-toggle-btn { background: transparent; border: 1px solid var(--border-18); color: var(--text-muted); padding: 12px; }
+        #theme-toggle-btn .icon-moon { display: none; }
+        :root.theme-light #theme-toggle-btn .icon-sun { display: none; }
+        :root.theme-light #theme-toggle-btn .icon-moon { display: block; }
         #copy-guest-link-btn { background: transparent; border: 1px solid var(--teal); color: var(--teal); }
-        #name-modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.6); display: none; align-items: center; justify-content: center; z-index: 50; }
+        #name-modal-overlay { position: fixed; inset: 0; background: var(--overlay); display: none; align-items: center; justify-content: center; z-index: 50; }
         #name-modal-overlay.show { display: flex; }
-        #name-modal { background: var(--panel-bg); border: 1px solid rgba(255,255,255,0.12); border-radius: 12px; padding: 24px; width: 320px; }
+        #name-modal { background: var(--panel-bg); border: 1px solid var(--border-12); border-radius: 12px; padding: 24px; width: 320px; }
         #name-modal h3 { font-size: 1rem; margin-bottom: 10px; }
         #name-modal p { font-size: 0.82rem; color: var(--text-muted); margin-bottom: 14px; }
-        #name-modal input { width: 100%; padding: 10px; background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.15); border-radius: 8px; color: var(--text-main); margin-bottom: 12px; }
+        #name-modal input { width: 100%; padding: 10px; background: var(--surface-2); border: 1px solid var(--border-15); border-radius: 8px; color: var(--text-main); margin-bottom: 12px; }
         #name-modal button { width: 100%; background: var(--teal); color: #fff; padding: 10px; border-radius: 8px; }
-        #waiting-room-panel { display: none; border: 1px solid rgba(255,255,255,0.08); border-radius: 8px; padding: 10px; font-size: 0.82rem; }
+        #waiting-room-panel { display: none; border: 1px solid var(--border-08); border-radius: 8px; padding: 10px; font-size: 0.82rem; }
         #waiting-room-panel.show { display: block; }
         #waiting-room-panel h3 { font-size: 0.8rem; color: var(--text-muted); margin-bottom: 8px; text-transform: uppercase; letter-spacing: 0.5px; }
-        .waiting-guest-row { display: flex; align-items: center; justify-content: space-between; gap: 6px; padding: 6px 0; border-bottom: 1px solid rgba(255,255,255,0.06); }
+        .waiting-guest-row { display: flex; align-items: center; justify-content: space-between; gap: 6px; padding: 6px 0; border-bottom: 1px solid var(--border-06); }
         .waiting-guest-row:last-child { border-bottom: none; }
         .waiting-guest-name { font-size: 0.85rem; }
         .waiting-guest-actions button { padding: 5px 10px; font-size: 0.72rem; border-radius: 6px; }
         .btn-admit { background: var(--teal); color: #fff; }
         .btn-deny { background: transparent; border: 1px solid var(--red); color: var(--red); }
         #peer-status-list { display: flex; flex-direction: column; gap: 8px; }
-        .peer-card { border: 1px solid rgba(255,255,255,0.08); border-radius: 8px; padding: 10px; font-size: 0.78rem; }
+        .peer-card { border: 1px solid var(--border-08); border-radius: 8px; padding: 10px; font-size: 0.78rem; }
         .peer-card.confirmed { border-color: var(--teal); }
         .peer-card h4 { font-size: 0.82rem; margin-bottom: 6px; }
         .peer-card .peer-status-line { color: var(--text-muted); margin-bottom: 2px; }
@@ -81,6 +109,15 @@
         details.manual-fallback { font-size: 0.78rem; color: var(--text-muted); }
         details.manual-fallback summary { cursor: pointer; padding: 4px 0; }
     </style>
+    <script>
+        (function () {
+            try {
+                if (localStorage.getItem('aegis-theme') === 'light') {
+                    document.documentElement.classList.add('theme-light');
+                }
+            } catch (e) { /* localStorage unavailable — default to dark */ }
+        })();
+    </script>
 </head>
 <body>
     <div id="name-modal-overlay">
@@ -94,10 +131,26 @@
     <header>
         <h1><img src="/logo.png" alt="" class="app-logo" width="36" height="36"><span class="status-dot" id="status-dot"></span> Aegis Secure Chat <span style="font-size:0.75rem;color:var(--amber);font-weight:normal;">Media</span></h1>
         <div class="header-actions">
-            <button id="create-invite-btn">🔗 Create Invite</button>
-            <button id="reset-btn">🔄 Reset</button>
-            <button id="help-btn">❓ Help</button>
-            <button id="about-btn">ℹ️ About</button>
+            <button id="create-invite-btn" title="Create a one-time invite link to share with a guest" aria-label="Create invite">
+                <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 21a8 8 0 0 1 13.292-6"/><circle cx="10" cy="8" r="5"/><path d="M19 16v6"/><path d="M22 19h-6"/></svg>
+                <span>Invite</span>
+            </button>
+            <button id="reset-btn" title="Disconnect all peers and clear the chat log" aria-label="Reset connection">
+                <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/><path d="M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16"/><path d="M16 16h5v5"/></svg>
+                <span>Reset</span>
+            </button>
+            <button id="help-btn" title="Help — coming soon" aria-label="Help">
+                <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><path d="M12 17h.01"/></svg>
+                <span>Help</span>
+            </button>
+            <button id="about-btn" title="About Aegis Secure Chat — coming soon" aria-label="About">
+                <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg>
+                <span>About</span>
+            </button>
+            <button id="theme-toggle-btn" title="Switch to light theme" aria-label="Toggle dark/light theme">
+                <svg class="icon icon-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2"/><path d="M12 20v2"/><path d="m4.93 4.93 1.41 1.41"/><path d="m17.66 17.66 1.41 1.41"/><path d="M2 12h2"/><path d="M20 12h2"/><path d="m6.34 17.66-1.41 1.41"/><path d="m19.07 4.93-1.41 1.41"/></svg>
+                <svg class="icon icon-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/></svg>
+            </button>
         </div>
     </header>
     <main>
@@ -2552,6 +2605,21 @@
         document.getElementById('about-btn').onclick = () => {
             addMessage('About — coming soon.', 'system');
         };
+
+        // Dark/light theme toggle — persisted to localStorage.
+        (function () {
+            const themeBtn = document.getElementById('theme-toggle-btn');
+            const applyTitle = () => {
+                const isLight = document.documentElement.classList.contains('theme-light');
+                themeBtn.title = isLight ? 'Switch to dark theme' : 'Switch to light theme';
+            };
+            applyTitle();
+            themeBtn.onclick = () => {
+                const isLight = document.documentElement.classList.toggle('theme-light');
+                try { localStorage.setItem('aegis-theme', isLight ? 'light' : 'dark'); } catch (e) { /* ignore */ }
+                applyTitle();
+            };
+        })();
 
         function parseSignalInput(raw) {
             const trimmed = raw.trim();
