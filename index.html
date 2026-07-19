@@ -2999,6 +2999,15 @@
             };
             dc.onmessage = async (event) => {
                 try {
+                    if (typeof event.data !== 'string') {
+                        // This app only ever sends JSON.stringify'd text envelopes over
+                        // the data channel. A non-string frame (ArrayBuffer/Blob) is not
+                        // something we intentionally send, so it's a stray/duplicate frame
+                        // rather than a real protocol error — log it and move on instead of
+                        // surfacing a scary user-facing error for something benign.
+                        console.warn('Ignoring non-text data channel frame:', event.data);
+                        return;
+                    }
                     const envelope = JSON.parse(event.data);
                     if (handleHeartbeatMessage(peer, envelope)) return;
                     if (!wasmReady || !peer.sessionKeyReady || !peer.fingerprintVerified) {
