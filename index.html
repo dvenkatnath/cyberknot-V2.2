@@ -2575,6 +2575,25 @@
                 throw new Error(`Already at the ${MAX_ACTIVE_GUESTS_CLIENT}-guest limit.`);
             }
 
+            // A guest who closed their browser and reopened the same invite link
+            // shows up here as a brand-new connId with the same display name.
+            // Their old connection may not be cleanly closed yet — ICE disconnect
+            // detection can lag well behind an abrupt tab close — so a stale peer
+            // can linger in `peers` with a data channel that still looks open. If
+            // a late/buffered frame arrives on that zombie channel after the
+            // shared WASM key slot (activeWasmKeyPeerId) has moved on to a
+            // different peer, it gets decrypted with the wrong key and surfaces
+            // as a garbled "Error receiving message: JSON Parse error". Close any
+            // stale peer with the same name before setting up the new one.
+            if (name) {
+                for (const [staleId, stalePeer] of [...peers.entries()]) {
+                    if (staleId !== connId && stalePeer.name === name) {
+                        addMessage(`Closing previous connection for ${name} (reconnected).`, 'system');
+                        closePeer(staleId);
+                    }
+                }
+            }
+
             const peer = makePeer(connId, name);
             peers.set(connId, peer);
             peer.isInitiator = true;
