@@ -116,6 +116,9 @@
         .waiting-guest-actions button { padding: 5px 10px; font-size: 0.72rem; border-radius: 6px; }
         .btn-admit { background: var(--teal); color: #fff; }
         .btn-deny { background: transparent; border: 1px solid var(--red); color: var(--red); }
+        #participants-list { display: flex; flex-direction: column; gap: 4px; }
+        .participant-row { font-size: 0.85rem; padding: 4px 0; border-bottom: 1px solid var(--border-06); }
+        .participant-row:last-child { border-bottom: none; }
         #peer-status-list { display: flex; flex-direction: column; gap: 8px; }
         .peer-card { border: 1px solid var(--border-08); border-radius: 8px; padding: 10px; font-size: 0.78rem; }
         .peer-card.confirmed { border-color: var(--teal); }
@@ -237,6 +240,11 @@
                 <div id="waiting-room-panel">
                     <h3>Waiting room</h3>
                     <div id="waiting-room-list"></div>
+                </div>
+
+                <div class="drawer-section-label">Participants</div>
+                <div class="drawer-panel">
+                    <div id="participants-list"></div>
                 </div>
 
                 <div class="drawer-section-label">Actions</div>

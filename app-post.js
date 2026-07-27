@@ -84,6 +84,7 @@
             updateSecurityPanel();
             preloadIceConfig();
             connectRelay('host');
+            refreshRoster();
             return guestLink;
         }
 
@@ -802,6 +803,45 @@
             }
         }
 
+        // Participants roster: a guest's only direct connection is to the
+        // host, so guests have no inherent visibility into who else is in
+        // the room. The host computes the current list (itself + every
+        // fully-confirmed guest) and pushes it to everyone whenever
+        // membership changes; guests just render whatever they're sent.
+        function currentParticipantNames() {
+            const names = ['Host'];
+            for (const peer of peers.values()) {
+                if (peerCanSend(peer) && peer.name) names.push(peer.name);
+            }
+            return names;
+        }
+
+        function renderParticipantsList(names) {
+            const list = document.getElementById('participants-list');
+            if (!list) return;
+            list.innerHTML = '';
+            for (const name of names) {
+                const row = document.createElement('div');
+                row.className = 'participant-row';
+                row.textContent = name;
+                list.appendChild(row);
+            }
+        }
+
+        function refreshRoster() {
+            if (inviteRole !== 'host') return;
+            const participants = currentParticipantNames();
+            renderParticipantsList(participants);
+            for (const peer of peers.values()) {
+                if (!peerCanSend(peer)) continue;
+                try {
+                    sendSecure(peer, { type: 'roster', participants });
+                } catch (err) {
+                    console.error(`Roster send to ${peer.name || peer.connId} failed:`, err);
+                }
+            }
+        }
+
         function handleIncomingPayload(peer, payload) {
             // In the star topology, a guest's only direct connection is to the
             // host, so a message the host relays from a DIFFERENT guest arrives
@@ -864,6 +904,8 @@
                         console.error('Blob ref fan-out failed:', err);
                     });
                 }
+            } else if (payload.type === 'roster') {
+                renderParticipantsList(payload.participants);
             } else {
                 throw new Error(`Unknown message type: ${payload.type}`);
             }
@@ -1425,6 +1467,7 @@
             peers.delete(connId);
             updateStatusDot();
             updateSecurityPanel();
+            if (inviteRole === 'host') refreshRoster();
         }
 
         function closeAllPeers() {
@@ -1454,6 +1497,7 @@
 
             waitingGuests.clear();
             renderWaitingRoom();
+            renderParticipantsList([]);
 
             updateSecurityPanel();
             addMessage('Connection reset. All peers disconnected.', 'system');
@@ -2136,6 +2180,7 @@
                 }
                 if (peer.pc) await detectConnectionPath(peer.pc, peer);
                 updateSecurityPanel();
+                if (inviteRole === 'host') refreshRoster();
             };
             dc.onclose = () => {
                 stopPeerHeartbeat(peer);

@@ -698,6 +698,10 @@
                         }
                         peer.safetyConfirmed = true;
                         updateSecurityPanel();
+                        // refreshRoster is defined later (app-post.js), but by the time a
+                        // user can actually click this button both scripts have already
+                        // run, so the function reference is available here.
+                        if (inviteRole === 'host' && typeof refreshRoster === 'function') refreshRoster();
                         if (peerCanSend(peer) && wasmReady && keyTransparencyOk) {
                             addMessage(`Safety check confirmed with ${peer.name || 'peer'} — unlocked.`, 'system');
                         } else {
