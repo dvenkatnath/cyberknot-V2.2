@@ -8,6 +8,7 @@
           var forced = params.get('ui');
           if (forced === 'desktop' || forced === 'mobile') {
             try { sessionStorage.setItem('aegis-ui-pref', forced); } catch (e) {}
+            try { document.cookie = 'aegis-ui=' + forced + '; path=/; max-age=31536000; SameSite=Lax'; } catch (e) {}
           }
           var pref = forced || (function () { try { return sessionStorage.getItem('aegis-ui-pref'); } catch (e) { return null; } })();
           var isMobileUA = /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent);
@@ -353,6 +354,7 @@
             if (switchBtn) {
                 switchBtn.addEventListener('click', function () {
                     try { sessionStorage.setItem('aegis-ui-pref', 'desktop'); } catch (e) {}
+                    try { document.cookie = 'aegis-ui=desktop; path=/; max-age=31536000; SameSite=Lax'; } catch (e) {}
                     location.href = '/' + location.search + location.hash;
                 });
             }
