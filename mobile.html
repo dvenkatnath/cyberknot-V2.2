@@ -130,7 +130,7 @@
 
         /* ============ Mobile-first layout overrides below ============ */
         /* Same theme, same component classes above (so dynamically-injected
-           .msg / .peer-card / .waiting-guest-row elements from app.js render
+           .msg / .peer-card / .waiting-guest-row elements from app-pre.js/app-post.js render
            correctly) — everything from here down only changes structure:
            the header collapses to logo + hamburger, and the old sidebar
            ("aside") becomes a slide-in drawer instead of a fixed column. */
@@ -320,12 +320,13 @@
         </div>
     </main>
 
+    <script src="app-pre.js"></script>
     <script src="ice-config.js"></script>
     <script src="cyberknot.js?v=dev"></script>
-    <script src="app.js"></script>
+    <script src="app-post.js"></script>
     <script>
         // Mobile-only presentation wiring (drawer open/close, waiting-room badge,
-        // manual desktop-view override). None of this touches app.js — it only
+        // manual desktop-view override). None of this touches the shared engine — it only
         // toggles CSS classes on the drawer/backdrop the shared engine doesn't
         // know about.
         (function () {
