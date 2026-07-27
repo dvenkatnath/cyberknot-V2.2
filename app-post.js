@@ -84,7 +84,6 @@
             updateSecurityPanel();
             preloadIceConfig();
             connectRelay('host');
-            refreshRoster();
             return guestLink;
         }
 
@@ -806,12 +805,18 @@
         // Participants roster: a guest's only direct connection is to the
         // host, so guests have no inherent visibility into who else is in
         // the room. The host computes the current list (itself + every
-        // fully-confirmed guest) and pushes it to everyone whenever
-        // membership changes; guests just render whatever they're sent.
+        // guest whose encrypted channel is up) and pushes it to everyone
+        // whenever membership changes; guests just render whatever they're
+        // sent. Deliberately gated on peerReadyForSafetyConfirm rather than
+        // the stricter peerCanSend: names/presence aren't sensitive content,
+        // and requiring the HOST to also manually click "Confirm — codes
+        // match" for a guest before that guest could even see who else was
+        // in the room (peerCanSend needs BOTH sides to confirm) meant the
+        // roster often never arrived at all.
         function currentParticipantNames() {
             const names = ['Host'];
             for (const peer of peers.values()) {
-                if (peerCanSend(peer) && peer.name) names.push(peer.name);
+                if (peerReadyForSafetyConfirm(peer) && peer.name) names.push(peer.name);
             }
             return names;
         }
@@ -833,7 +838,7 @@
             const participants = currentParticipantNames();
             renderParticipantsList(participants);
             for (const peer of peers.values()) {
-                if (!peerCanSend(peer)) continue;
+                if (!peerReadyForSafetyConfirm(peer)) continue;
                 try {
                     sendSecure(peer, { type: 'roster', participants });
                 } catch (err) {
@@ -1467,7 +1472,6 @@
             peers.delete(connId);
             updateStatusDot();
             updateSecurityPanel();
-            if (inviteRole === 'host') refreshRoster();
         }
 
         function closeAllPeers() {
@@ -2180,7 +2184,6 @@
                 }
                 if (peer.pc) await detectConnectionPath(peer.pc, peer);
                 updateSecurityPanel();
-                if (inviteRole === 'host') refreshRoster();
             };
             dc.onclose = () => {
                 stopPeerHeartbeat(peer);

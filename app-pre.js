@@ -620,6 +620,16 @@
                     ? `Waiting for: ${blockers.join(', ')}…`
                     : 'Type secure message… (connect first)';
             }
+
+            // Centralized hook: every peer-state transition that matters for
+            // the participants roster (channel open/close, key/fingerprint
+            // ready, safety confirmed) already calls updateSecurityPanel(),
+            // so refresh the roster from here rather than chasing every call
+            // site individually. refreshRoster is defined later in
+            // app-post.js, but this branch is only ever reachable once
+            // inviteRole is 'host', which only happens after a user action —
+            // by then both scripts have already loaded.
+            if (inviteRole === 'host' && typeof refreshRoster === 'function') refreshRoster();
         }
 
         function renderPeerStatusList() {
@@ -698,10 +708,6 @@
                         }
                         peer.safetyConfirmed = true;
                         updateSecurityPanel();
-                        // refreshRoster is defined later (app-post.js), but by the time a
-                        // user can actually click this button both scripts have already
-                        // run, so the function reference is available here.
-                        if (inviteRole === 'host' && typeof refreshRoster === 'function') refreshRoster();
                         if (peerCanSend(peer) && wasmReady && keyTransparencyOk) {
                             addMessage(`Safety check confirmed with ${peer.name || 'peer'} — unlocked.`, 'system');
                         } else {
