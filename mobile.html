@@ -1,0 +1,361 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <script>
+      (function () {
+        try {
+          var params = new URLSearchParams(location.search);
+          var forced = params.get('ui');
+          if (forced === 'desktop' || forced === 'mobile') {
+            try { sessionStorage.setItem('aegis-ui-pref', forced); } catch (e) {}
+          }
+          var pref = forced || (function () { try { return sessionStorage.getItem('aegis-ui-pref'); } catch (e) { return null; } })();
+          var isMobileUA = /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent);
+          var minDim = Math.min(window.innerWidth || 9999, window.innerHeight || 9999);
+          var isTouch = ('ontouchstart' in window) || (navigator.maxTouchPoints || 0) > 0;
+          var wantMobile = pref ? pref === 'mobile' : (isMobileUA || (isTouch && minDim < 700));
+          if (!wantMobile) {
+            location.replace('/' + location.search + location.hash);
+          }
+        } catch (e) { /* detection failed -- stay on mobile layout */ }
+      })();
+    </script>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, maximum-scale=1.0">
+    <title>Aegis Secure Chat — Mobile</title>
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+    <link rel="icon" href="/favicon-32.png" type="image/png" sizes="32x32">
+    <link rel="icon" href="/favicon-16.png" type="image/png" sizes="16x16">
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" sizes="180x180">
+    <link rel="shortcut icon" href="/favicon.ico">
+    <style>
+        :root {
+            --bg-dark: #020817; --panel-bg: rgba(10, 18, 40, 0.85);
+            --teal: #1D9E75; --amber: #EF9F27; --red: #f87171;
+            --text-main: #e2e8f0; --text-muted: #94a3b8;
+            --surface-2: rgba(0,0,0,0.3); --overlay: rgba(0,0,0,0.6);
+            --border-03: rgba(255,255,255,0.03); --border-06: rgba(255,255,255,0.06);
+            --border-08: rgba(255,255,255,0.08); --border-1: rgba(255,255,255,0.1);
+            --border-12: rgba(255,255,255,0.12); --border-15: rgba(255,255,255,0.15);
+            --border-18: rgba(255,255,255,0.18);
+            --reset-bg: #FDBA74; --reset-text: #3a2410;
+            --shadow-logo: rgba(201, 162, 39, 0.35);
+        }
+        :root.theme-light {
+            --bg-dark: #eef1f6; --panel-bg: rgba(255, 255, 255, 0.92);
+            --teal: #0f8a63; --amber: #c2760f; --red: #dc2626;
+            --text-main: #1e293b; --text-muted: #5b6472;
+            --surface-2: rgba(0,0,0,0.045); --overlay: rgba(15,23,42,0.35);
+            --border-03: rgba(0,0,0,0.03); --border-06: rgba(0,0,0,0.07);
+            --border-08: rgba(0,0,0,0.09); --border-1: rgba(0,0,0,0.11);
+            --border-12: rgba(0,0,0,0.13); --border-15: rgba(0,0,0,0.16);
+            --border-18: rgba(0,0,0,0.2);
+            --reset-bg: #FDBA74; --reset-text: #3a2410;
+            --shadow-logo: rgba(201, 162, 39, 0.25);
+        }
+        * { margin: 0; padding: 0; box-sizing: border-box; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
+        body { background: var(--bg-dark); color: var(--text-main); height: 100vh; display: flex; flex-direction: column; overflow: hidden; transition: background 0.2s, color 0.2s; }
+        header { background: var(--panel-bg); padding: 15px 20px; border-bottom: 1px solid var(--border-08); display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; }
+        h1 { font-size: 1.2rem; letter-spacing: 1px; display: flex; align-items: center; gap: 10px; }
+        .app-logo { width: 36px; height: 36px; object-fit: contain; flex-shrink: 0; filter: drop-shadow(0 0 6px var(--shadow-logo)); }
+        .status-dot { width: 10px; height: 10px; background: #ef4444; border-radius: 50%; transition: 0.3s; }
+        .status-dot.connected { background: var(--teal); box-shadow: 0 0 8px var(--teal); }
+        main { display: flex; flex: 1; overflow: hidden; }
+        .chat-area { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+        #chat-box { flex: 1; overflow-y: auto; padding: 20px; display: flex; flex-direction: column; gap: 15px; }
+        .msg { max-width: 70%; padding: 12px 16px; border-radius: 12px 12px 12px 2px; background: rgba(127, 119, 221, 0.1); border: 1px solid rgba(127, 119, 221, 0.3); font-size: 0.95rem; word-break: break-word; }
+        .msg.system { max-width: 100%; color: var(--text-muted); font-size: 0.85rem; border-color: var(--border-08); background: var(--border-03); }
+        .msg.sent { align-self: flex-end; border-radius: 12px 12px 2px 12px; background: rgba(29, 158, 117, 0.1); border-color: rgba(29, 158, 117, 0.3); }
+        .msg.file { border-color: var(--amber); background: rgba(239, 159, 39, 0.1); cursor: pointer; text-decoration: none; color: var(--amber); display: block; }
+        .input-area { padding: 15px; background: var(--panel-bg); border-top: 1px solid var(--border-08); display: flex; gap: 10px; }
+        #file-transfer-banner { display: none; padding: 10px 15px; background: rgba(239, 159, 39, 0.12); border-top: 1px solid rgba(239, 159, 39, 0.35); color: var(--amber); font-size: 0.85rem; line-height: 1.4; }
+        #file-transfer-banner.show { display: block; }
+        input[type="text"], input[type="password"] { flex: 1; padding: 12px; background: var(--surface-2); border: 1px solid var(--border-1); border-radius: 8px; color: var(--text-main); outline: none; }
+        input[type="text"]:focus, input[type="password"]:focus { border-color: var(--teal); }
+        button { display: inline-flex; align-items: center; justify-content: center; gap: 8px; padding: 12px 20px; border: none; border-radius: 8px; cursor: pointer; font-weight: bold; transition: 0.2s; }
+        button:disabled { opacity: 0.45; cursor: not-allowed; }
+        .icon { width: 18px; height: 18px; flex-shrink: 0; display: block; }
+        #send-btn { background: var(--teal); color: white; }
+        #file-btn { background: transparent; border: 1px solid var(--amber); color: var(--amber); }
+        aside { width: 280px; background: var(--panel-bg); border-right: 1px solid var(--border-08); padding: 20px; display: flex; flex-direction: column; gap: 12px; overflow-y: auto; }
+        aside label { font-size: 0.8rem; color: var(--text-muted); }
+        textarea { min-height: 120px; background: var(--surface-2); border: 1px solid var(--border-1); border-radius: 8px; color: var(--text-muted); padding: 10px; resize: vertical; font-family: monospace; font-size: 0.75rem; }
+        #security-panel { font-size: 0.78rem; line-height: 1.6; color: var(--text-muted); border: 1px solid var(--border-08); border-radius: 8px; padding: 10px; }
+        #security-panel .ok { color: var(--teal); }
+        #security-panel .bad { color: var(--red); }
+        #fingerprint-display { font-family: monospace; font-size: 0.72rem; word-break: break-all; color: var(--text-muted); }
+        #fingerprint-display.pending { color: var(--amber); }
+        #fingerprint-display.verified { color: var(--teal); }
+        #fingerprint-display.error { color: var(--red); }
+        #guest-invite-link { font-size: 0.72rem; min-height: 56px; }
+        .invite-actions { display: flex; flex-direction: column; gap: 8px; }
+        .invite-actions button { font-size: 0.85rem; padding: 10px; }
+        .header-actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+        #create-invite-btn { background: var(--teal); color: white; }
+        #reset-btn { background: var(--reset-bg); color: var(--reset-text); }
+        #help-btn, #about-btn { background: transparent; border: 1px solid var(--border-18); color: var(--text-muted); }
+        #theme-toggle-btn { background: transparent; border: 1px solid var(--border-18); color: var(--text-muted); padding: 12px; }
+        #theme-toggle-btn .icon-moon { display: none; }
+        :root.theme-light #theme-toggle-btn .icon-sun { display: none; }
+        :root.theme-light #theme-toggle-btn .icon-moon { display: block; }
+        #copy-guest-link-btn { background: transparent; border: 1px solid var(--teal); color: var(--teal); }
+        #name-modal-overlay { position: fixed; inset: 0; background: var(--overlay); display: none; align-items: center; justify-content: center; z-index: 50; }
+        #name-modal-overlay.show { display: flex; }
+        #name-modal { background: var(--panel-bg); border: 1px solid var(--border-12); border-radius: 12px; padding: 24px; width: 320px; }
+        #name-modal h3 { font-size: 1rem; margin-bottom: 10px; }
+        #name-modal p { font-size: 0.82rem; color: var(--text-muted); margin-bottom: 14px; }
+        #name-modal input { width: 100%; padding: 10px; background: var(--surface-2); border: 1px solid var(--border-15); border-radius: 8px; color: var(--text-main); margin-bottom: 12px; }
+        #name-modal button { width: 100%; background: var(--teal); color: #fff; padding: 10px; border-radius: 8px; }
+        #waiting-room-panel { display: none; border: 1px solid var(--border-08); border-radius: 8px; padding: 10px; font-size: 0.82rem; }
+        #waiting-room-panel.show { display: block; }
+        #waiting-room-panel h3 { font-size: 0.8rem; color: var(--text-muted); margin-bottom: 8px; text-transform: uppercase; letter-spacing: 0.5px; }
+        .waiting-guest-row { display: flex; align-items: center; justify-content: space-between; gap: 6px; padding: 6px 0; border-bottom: 1px solid var(--border-06); }
+        .waiting-guest-row:last-child { border-bottom: none; }
+        .waiting-guest-name { font-size: 0.85rem; }
+        .waiting-guest-actions button { padding: 5px 10px; font-size: 0.72rem; border-radius: 6px; }
+        .btn-admit { background: var(--teal); color: #fff; }
+        .btn-deny { background: transparent; border: 1px solid var(--red); color: var(--red); }
+        #peer-status-list { display: flex; flex-direction: column; gap: 8px; }
+        .peer-card { border: 1px solid var(--border-08); border-radius: 8px; padding: 10px; font-size: 0.78rem; }
+        .peer-card.confirmed { border-color: var(--teal); }
+        .peer-card h4 { font-size: 0.82rem; margin-bottom: 6px; }
+        .peer-card .peer-status-line { color: var(--text-muted); margin-bottom: 2px; }
+        .peer-card .peer-status-line .ok { color: var(--teal); }
+        .peer-card .peer-status-line .bad { color: var(--red); }
+        .peer-card .peer-safety-code { font-family: monospace; font-size: 1.15rem; letter-spacing: 3px; color: var(--amber); text-align: center; padding: 8px 0; }
+        .peer-card.confirmed .peer-safety-code { color: var(--teal); }
+        .peer-card .peer-safety-confirm-btn { width: 100%; background: var(--teal); color: #fff; padding: 7px; border-radius: 6px; margin-top: 4px; font-size: 0.78rem; }
+        details.manual-fallback { font-size: 0.78rem; color: var(--text-muted); }
+        details.manual-fallback summary { cursor: pointer; padding: 4px 0; }
+
+        /* ============ Mobile-first layout overrides below ============ */
+        /* Same theme, same component classes above (so dynamically-injected
+           .msg / .peer-card / .waiting-guest-row elements from app.js render
+           correctly) — everything from here down only changes structure:
+           the header collapses to logo + hamburger, and the old sidebar
+           ("aside") becomes a slide-in drawer instead of a fixed column. */
+        body { height: 100dvh; }
+        header { padding: 12px 14px; padding-top: max(12px, env(safe-area-inset-top)); flex-wrap: nowrap; }
+        h1 { font-size: 1rem; gap: 8px; }
+        h1 .app-logo { width: 28px; height: 28px; }
+        h1 .subtitle-tag { display: none; }
+        #drawer-toggle-btn { background: transparent; border: none; color: var(--text-muted); padding: 8px; position: relative; }
+        #drawer-toggle-btn .icon { width: 24px; height: 24px; }
+        #drawer-toggle-btn.has-waiting::after {
+            content: ''; position: absolute; top: 6px; right: 6px; width: 8px; height: 8px;
+            border-radius: 50%; background: var(--amber); box-shadow: 0 0 0 2px var(--panel-bg);
+        }
+        main { position: relative; }
+        .chat-area { width: 100%; }
+        .input-area { padding: 10px 12px; padding-bottom: max(10px, env(safe-area-inset-bottom)); gap: 8px; }
+        .input-area input[type="text"] { border-radius: 20px; padding: 11px 16px; font-size: 0.92rem; }
+        #file-btn, #send-btn { width: 40px; height: 40px; padding: 0; border-radius: 50%; flex-shrink: 0; }
+        #file-btn span, #send-btn span { display: none; }
+        #file-btn .icon, #send-btn .icon { width: 19px; height: 19px; }
+        #chat-box { padding: 14px 12px; gap: 10px; }
+        .msg { max-width: 82%; font-size: 0.92rem; }
+
+        #drawer-backdrop {
+            position: fixed; inset: 0; background: var(--overlay); z-index: 55;
+            opacity: 0; pointer-events: none; transition: opacity 0.2s;
+        }
+        #drawer-backdrop.open { opacity: 1; pointer-events: auto; }
+
+        aside#app-drawer {
+            position: fixed; top: 0; right: 0; bottom: 0; z-index: 60;
+            width: min(86vw, 340px); border-right: none; border-left: 1px solid var(--border-08);
+            transform: translateX(100%); transition: transform 0.25s ease;
+            padding: 0; gap: 0; padding-bottom: max(16px, env(safe-area-inset-bottom));
+        }
+        aside#app-drawer.open { transform: translateX(0); }
+        .drawer-header {
+            display: flex; align-items: center; justify-content: space-between;
+            padding: 16px 16px; padding-top: max(16px, env(safe-area-inset-top));
+            border-bottom: 1px solid var(--border-08); flex-shrink: 0;
+        }
+        .drawer-header h2 { font-size: 1rem; font-weight: 600; }
+        #drawer-close-btn { background: transparent; border: none; color: var(--text-muted); padding: 6px; }
+        #drawer-close-btn .icon { width: 20px; height: 20px; }
+        .drawer-body { flex: 1; overflow-y: auto; padding: 8px 0 16px; display: flex; flex-direction: column; gap: 4px; }
+        .drawer-section-label {
+            font-size: 0.7rem; letter-spacing: 0.5px; text-transform: uppercase;
+            color: var(--text-muted); padding: 14px 16px 6px;
+        }
+        .menu-row {
+            display: flex; align-items: center; gap: 12px; width: 100%;
+            background: transparent; border: none; border-radius: 0; padding: 11px 16px;
+            font-weight: normal; text-align: left; color: var(--text-main); font-size: 0.88rem;
+        }
+        .menu-row .icon { width: 19px; height: 19px; color: var(--text-muted); }
+        .menu-row span { flex: 1; }
+        #reset-btn.menu-row .icon { color: var(--reset-bg); }
+        #reset-btn.menu-row span { color: var(--reset-bg); }
+        .drawer-panel { padding: 6px 16px; }
+        .drawer-panel textarea, .drawer-panel input[type="password"] { width: 100%; }
+        .drawer-divider { height: 1px; background: var(--border-06); margin: 8px 16px; }
+    </style>
+    <script>
+        (function () {
+            try {
+                if (localStorage.getItem('aegis-theme') === 'light') {
+                    document.documentElement.classList.add('theme-light');
+                }
+            } catch (e) { /* localStorage unavailable — default to dark */ }
+        })();
+    </script>
+</head>
+<body>
+    <div id="name-modal-overlay">
+        <div id="name-modal">
+            <h3>Enter your name</h3>
+            <p>Shown to the host in the waiting room. Not trusted for security until the safety check passes.</p>
+            <input type="text" id="guest-name-input" placeholder="Your name" maxlength="40" autocomplete="off">
+            <button id="guest-name-submit-btn">Join waiting room</button>
+        </div>
+    </div>
+
+    <header>
+        <h1><img src="/logo.png" alt="" class="app-logo" width="28" height="28"><span class="status-dot" id="status-dot"></span> Aegis Secure Chat <span class="subtitle-tag" style="font-size:0.75rem;color:var(--amber);font-weight:normal;">Media</span></h1>
+        <button id="drawer-toggle-btn" type="button" aria-label="Open menu">
+            <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6h16"/><path d="M4 12h16"/><path d="M4 18h16"/></svg>
+        </button>
+    </header>
+
+    <div id="drawer-backdrop"></div>
+
+    <main>
+        <aside id="app-drawer">
+            <div class="drawer-header">
+                <h2>Menu</h2>
+                <button id="drawer-close-btn" type="button" aria-label="Close menu">
+                    <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
+                </button>
+            </div>
+            <div class="drawer-body">
+
+                <div id="waiting-room-panel">
+                    <h3>Waiting room</h3>
+                    <div id="waiting-room-list"></div>
+                </div>
+
+                <div class="drawer-section-label">Actions</div>
+                <button id="create-invite-btn" class="menu-row" type="button" title="Create a one-time invite link to share with a guest" aria-label="Create invite">
+                    <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 21a8 8 0 0 1 13.292-6"/><circle cx="10" cy="8" r="5"/><path d="M19 16v6"/><path d="M22 19h-6"/></svg>
+                    <span>Create invite link</span>
+                </button>
+                <button id="reset-btn" class="menu-row" type="button" title="Disconnect all peers and clear the chat log" aria-label="Reset connection">
+                    <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/><path d="M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16"/><path d="M16 16h5v5"/></svg>
+                    <span>Reset connection</span>
+                </button>
+                <button id="theme-toggle-btn" class="menu-row" type="button" title="Switch to light theme" aria-label="Toggle dark/light theme">
+                    <svg class="icon icon-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2"/><path d="M12 20v2"/><path d="m4.93 4.93 1.41 1.41"/><path d="m17.66 17.66 1.41 1.41"/><path d="M2 12h2"/><path d="M20 12h2"/><path d="m6.34 17.66-1.41 1.41"/><path d="m19.07 4.93-1.41 1.41"/></svg>
+                    <svg class="icon icon-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/></svg>
+                    <span>Theme</span>
+                </button>
+                <button id="help-btn" class="menu-row" type="button" title="Help — coming soon" aria-label="Help">
+                    <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><path d="M12 17h.01"/></svg>
+                    <span>Help</span>
+                </button>
+                <button id="about-btn" class="menu-row" type="button" title="About Aegis Secure Chat — coming soon" aria-label="About">
+                    <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg>
+                    <span>About</span>
+                </button>
+
+                <div class="drawer-divider"></div>
+                <div class="drawer-section-label">Invite &amp; keys</div>
+                <div class="drawer-panel invite-actions">
+                    <label for="guest-invite-link">Guest invite link (share once — contains room secret in URL fragment)</label>
+                    <textarea id="guest-invite-link" readonly placeholder="Tap Create invite link to generate a guest link."></textarea>
+                    <button type="button" id="copy-guest-link-btn" disabled>Copy Guest Link</button>
+                </div>
+                <div class="drawer-panel">
+                    <label for="room-secret">Room secret (auto-filled from invite)</label>
+                    <input type="password" id="room-secret" placeholder="Create or open an invite link" autocomplete="off" readonly>
+                </div>
+
+                <div class="drawer-divider"></div>
+                <div class="drawer-panel">
+                    <details class="manual-fallback">
+                        <summary>Advanced / manual signaling (fallback — not needed for normal use)</summary>
+                        <label for="signal-area"><strong>Offer / Answer JSON</strong> (from host — NOT the invite link)</label>
+                        <textarea id="signal-area" placeholder="GUEST: Paste the host's Offer JSON here (starts with {&quot;v&quot;:3,&quot;sdp&quot;...}), then tap Process Signal.&#10;HOST: Offer appears here automatically once a guest joins. Later, paste the guest's Answer JSON here."></textarea>
+                        <button id="signal-btn">Process Signal</button>
+                    </details>
+                </div>
+
+                <div class="drawer-divider"></div>
+                <div class="drawer-section-label">Security status</div>
+                <div class="drawer-panel">
+                    <div id="security-panel">
+                        <div id="sec-wasm">⏳ WASM: loading…</div>
+                        <div id="sec-room">⏳ Room secret: not set</div>
+                        <div id="sec-invite">⏳ Invite: not loaded</div>
+                        <div id="sec-transparency">⏳ Key transparency: pending</div>
+                    </div>
+                    <div id="peer-status-list" style="margin-top:10px;"></div>
+                </div>
+
+                <div class="drawer-divider"></div>
+                <div class="drawer-panel" style="padding-bottom:4px;">
+                    <button type="button" id="switch-ui-btn" style="width:100%; background:transparent; border:1px solid var(--border-18); color:var(--text-muted); font-size:0.8rem; padding:9px;">Switch to desktop view</button>
+                </div>
+            </div>
+        </aside>
+
+        <div class="chat-area">
+            <div id="chat-box"><div class="msg system">Establishing secure proprietary channel… Large files (&gt;20 MB) use encrypted cloud relay (WhatsApp-style); smaller files stay pure P2P.</div></div>
+            <div id="file-transfer-banner" role="status" aria-live="polite"></div>
+            <div class="input-area">
+                <input type="text" id="msg-input" placeholder="Type secure message…" disabled>
+                <input type="file" id="file-input" style="display:none;" disabled>
+                <button id="file-btn" disabled aria-label="Attach file">
+                    <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>
+                    <span>File</span>
+                </button>
+                <button id="send-btn" disabled aria-label="Send">
+                    <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m22 2-7 20-4-9-9-4Z"/><path d="M22 2 11 13"/></svg>
+                    <span>Send</span>
+                </button>
+            </div>
+        </div>
+    </main>
+
+    <script src="ice-config.js"></script>
+    <script src="cyberknot.js?v=dev"></script>
+    <script src="app.js"></script>
+    <script>
+        // Mobile-only presentation wiring (drawer open/close, waiting-room badge,
+        // manual desktop-view override). None of this touches app.js — it only
+        // toggles CSS classes on the drawer/backdrop the shared engine doesn't
+        // know about.
+        (function () {
+            var drawer = document.getElementById('app-drawer');
+            var backdrop = document.getElementById('drawer-backdrop');
+            var toggleBtn = document.getElementById('drawer-toggle-btn');
+            var closeBtn = document.getElementById('drawer-close-btn');
+            function openDrawer() { drawer.classList.add('open'); backdrop.classList.add('open'); }
+            function closeDrawer() { drawer.classList.remove('open'); backdrop.classList.remove('open'); }
+            toggleBtn.addEventListener('click', openDrawer);
+            closeBtn.addEventListener('click', closeDrawer);
+            backdrop.addEventListener('click', closeDrawer);
+
+            // Badge the hamburger icon while someone is in the waiting room.
+            var waitingPanel = document.getElementById('waiting-room-panel');
+            if (window.MutationObserver) {
+                var mo = new MutationObserver(function () {
+                    toggleBtn.classList.toggle('has-waiting', waitingPanel.classList.contains('show'));
+                });
+                mo.observe(waitingPanel, { attributes: true, attributeFilter: ['class'] });
+            }
+
+            var switchBtn = document.getElementById('switch-ui-btn');
+            if (switchBtn) {
+                switchBtn.addEventListener('click', function () {
+                    try { sessionStorage.setItem('aegis-ui-pref', 'desktop'); } catch (e) {}
+                    location.href = '/' + location.search + location.hash;
+                });
+            }
+        })();
+    </script>
+</body>
+</html>
