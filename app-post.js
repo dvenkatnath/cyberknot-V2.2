@@ -803,23 +803,34 @@
         }
 
         function handleIncomingPayload(peer, payload) {
-            const fromLabel = inviteRole === 'host' ? peer.name : null;
+            // In the star topology, a guest's only direct connection is to the
+            // host, so a message the host relays from a DIFFERENT guest arrives
+            // over that same connection. payload.senderName (attached below,
+            // only when the host fans a message out to other guests) tells the
+            // receiving side who actually wrote it; otherwise a message is
+            // assumed to be from whichever peer this connection belongs to
+            // (the host's own message, on a guest's screen — no tag needed
+            // there) or, on the host's own screen, from that connected guest.
+            const fromLabel = payload.senderName || (inviteRole === 'host' ? peer.name : null);
+            const relay = (extra) => {
+                if (inviteRole === 'host') broadcastToOthers(peer.connId, { ...payload, ...extra, senderName: fromLabel });
+            };
             if (payload.type === 'msg') {
                 addMessage(payload.data, 'received', fromLabel);
-                if (inviteRole === 'host') broadcastToOthers(peer.connId, payload);
+                relay();
             } else if (payload.type === 'msg-start') {
                 incomingMessages.set(payload.id, {
                     totalChunks: payload.totalChunks,
                     chunks: new Array(payload.totalChunks),
                     received: 0
                 });
-                if (inviteRole === 'host') broadcastToOthers(peer.connId, payload);
+                relay();
             } else if (payload.type === 'msg-chunk') {
                 handleMsgChunk(payload, fromLabel);
-                if (inviteRole === 'host') broadcastToOthers(peer.connId, payload);
+                relay();
             } else if (payload.type === 'file') {
                 addFileMessage(payload.name, payload.size, payload.data, fromLabel);
-                if (inviteRole === 'host') broadcastToOthers(peer.connId, payload);
+                relay();
             } else if (payload.type === 'file2-start') {
                 incomingFiles.set(payload.id, {
                     id: payload.id,
@@ -831,7 +842,7 @@
                     version: 2,
                     fromLabel
                 });
-                if (inviteRole === 'host') broadcastToOthers(peer.connId, payload);
+                relay();
             } else if (payload.type === 'file-start') {
                 incomingFiles.set(payload.id, {
                     name: payload.name,
@@ -840,16 +851,16 @@
                     chunks: new Array(payload.totalChunks),
                     received: 0
                 });
-                if (inviteRole === 'host') broadcastToOthers(peer.connId, payload);
+                relay();
             } else if (payload.type === 'file-chunk') {
                 handleFileChunk(payload, fromLabel);
-                if (inviteRole === 'host') broadcastToOthers(peer.connId, payload);
+                relay();
             } else if (payload.type === 'file-blob-ref') {
                 downloadBlobFile(peer, payload).catch((err) => {
                     addMessage(`File download failed: ${err.message}`, 'system');
                 });
                 if (inviteRole === 'host') {
-                    forwardBlobRefToOthers(peer.connId, payload).catch((err) => {
+                    forwardBlobRefToOthers(peer.connId, payload, fromLabel).catch((err) => {
                         console.error('Blob ref fan-out failed:', err);
                     });
                 }
@@ -912,9 +923,16 @@
             return Module.lengthBytesUTF8(JSON.stringify(payload));
         }
 
+        // When the host relays a message on to other guests it adds a
+        // senderName field (see handleIncomingPayload) so those guests can
+        // show who actually wrote it. Leave headroom here so a message that
+        // just barely fit as a single payload doesn't blow past
+        // ENCRYPT_MAX_PLAIN once that field is added during relay.
+        const RELAY_SENDER_NAME_MARGIN = 128;
+
         function sendTextPayload(text, readyPeers) {
             const singlePayload = { type: 'msg', data: text };
-            if (innerPayloadByteLength(singlePayload) <= ENCRYPT_MAX_PLAIN) {
+            if (innerPayloadByteLength(singlePayload) <= ENCRYPT_MAX_PLAIN - RELAY_SENDER_NAME_MARGIN) {
                 for (const peer of readyPeers) {
                     sendSecure(peer, singlePayload);
                 }
@@ -1153,7 +1171,7 @@
             return new Uint8Array(await response.arrayBuffer());
         }
 
-        async function forwardBlobRefToOthers(fromConnId, payload) {
+        async function forwardBlobRefToOthers(fromConnId, payload, senderName) {
             const rawKey = await importFileKeyFromWrap(
                 peers.get(fromConnId),
                 payload.blobId,
@@ -1172,7 +1190,8 @@
                     totalParts: payload.totalParts,
                     token: payload.token,
                     keyIv: wrapped.keyIv,
-                    keyCt: wrapped.keyCt
+                    keyCt: wrapped.keyCt,
+                    senderName: senderName || undefined
                 });
             }
         }
@@ -1190,7 +1209,7 @@
                 merged.set(part, offset);
                 offset += part.length;
             }
-            const blobFromLabel = inviteRole === 'host' ? peer.name : null;
+            const blobFromLabel = payload.senderName || (inviteRole === 'host' ? peer.name : null);
             addFileMessageBlob(payload.name, payload.size, new Blob([merged]), blobFromLabel);
             addMessage(`Received file via encrypted relay: ${payload.name} (${formatBytes(payload.size)})`, 'received', blobFromLabel);
         }
