@@ -18,6 +18,30 @@
     Content-Security-Policy "default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; connect-src 'self' wss: stun: turn: blob:; img-src 'self' data:; style-src 'self' 'unsafe-inline'; frame-ancestors 'none'; base-uri 'none';"
   }
 
+  # Mobile/desktop UI split — send phones straight to mobile.html in one
+  # request instead of loading index.html first and redirecting client-side
+  # (that double load was measurably slow on a real phone over cellular).
+  # A saved aegis-ui cookie (set via the "switch to desktop/mobile view"
+  # links, or ?ui=desktop / ?ui=mobile) always wins over the UA guess.
+  @force_desktop {
+    path /mobile.html
+    header Cookie *aegis-ui=desktop*
+  }
+  redir @force_desktop /?{http.request.uri.query} 302
+
+  @force_mobile {
+    path /
+    header Cookie *aegis-ui=mobile*
+  }
+  redir @force_mobile /mobile.html?{http.request.uri.query} 302
+
+  @mobile_ua {
+    path /
+    not header Cookie *aegis-ui=desktop*
+    header_regexp User-Agent (?i)(android|iphone|ipad|ipod|mobile|iemobile|blackberry|opera mini)
+  }
+  redir @mobile_ua /mobile.html?{http.request.uri.query} 302
+
   # Blob parts are already client-side AES-GCM encrypted before upload — pure
   # high-entropy binary. gzip/zstd cannot shrink that at all, but Caddy still
   # spends real CPU/time trying on every response, which measurably throttles
