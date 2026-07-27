@@ -38,7 +38,7 @@
   @mobile_ua {
     path /
     not header Cookie *aegis-ui=desktop*
-    header_regexp User-Agent (?i)(android|iphone|ipad|ipod|mobile|iemobile|blackberry|opera mini)
+    header_regexp User-Agent "(?i)(android|iphone|ipad|ipod|mobile|iemobile|blackberry|opera mini)"
   }
   redir @mobile_ua /mobile.html?{http.request.uri.query} 302
 
