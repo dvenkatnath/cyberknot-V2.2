@@ -1,4 +1,4 @@
-// Aegis Secure Chat -- shared engine, part 1 (must run BEFORE cyberknot.js loads)
+// Secure Chat -- shared engine, part 1 (must run BEFORE cyberknot.js loads)
 // Defines the Emscripten Module pre-config object + core state; cyberknot.js
 // merges into this Module object rather than replacing it.
 

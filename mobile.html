@@ -23,7 +23,7 @@
     </script>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, maximum-scale=1.0">
-    <title>Aegis Secure Chat — Mobile</title>
+    <title>Secure Chat — Mobile</title>
     <link rel="icon" href="/favicon.svg" type="image/svg+xml">
     <link rel="icon" href="/favicon-32.png" type="image/png" sizes="32x32">
     <link rel="icon" href="/favicon-16.png" type="image/png" sizes="16x16">
@@ -40,7 +40,7 @@
             --border-12: rgba(255,255,255,0.12); --border-15: rgba(255,255,255,0.15);
             --border-18: rgba(255,255,255,0.18);
             --reset-bg: #FDBA74; --reset-text: #3a2410;
-            --shadow-logo: rgba(201, 162, 39, 0.35);
+            --shadow-logo: rgba(0, 76, 237, 0.45);
         }
         :root.theme-light {
             --bg-dark: #eef1f6; --panel-bg: rgba(255, 255, 255, 0.92);
@@ -52,13 +52,14 @@
             --border-12: rgba(0,0,0,0.13); --border-15: rgba(0,0,0,0.16);
             --border-18: rgba(0,0,0,0.2);
             --reset-bg: #FDBA74; --reset-text: #3a2410;
-            --shadow-logo: rgba(201, 162, 39, 0.25);
+            --shadow-logo: rgba(0, 76, 237, 0.3);
         }
         * { margin: 0; padding: 0; box-sizing: border-box; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
         body { background: var(--bg-dark); color: var(--text-main); height: 100vh; display: flex; flex-direction: column; overflow: hidden; transition: background 0.2s, color 0.2s; }
         header { background: var(--panel-bg); padding: 15px 20px; border-bottom: 1px solid var(--border-08); display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; }
-        h1 { font-size: 1.2rem; letter-spacing: 1px; display: flex; align-items: center; gap: 10px; }
-        .app-logo { width: 36px; height: 36px; object-fit: contain; flex-shrink: 0; filter: drop-shadow(0 0 6px var(--shadow-logo)); }
+        h1 { font-size: 1.2rem; letter-spacing: 1px; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+        .app-logo { width: 36px; height: 36px; object-fit: contain; flex-shrink: 0; filter: drop-shadow(0 0 8px var(--shadow-logo)); }
+        .product-of { font-size: 0.78rem; font-weight: normal; letter-spacing: 0.2px; color: var(--text-muted); margin-left: 0.85rem; white-space: nowrap; }
         .status-dot { width: 10px; height: 10px; background: #ef4444; border-radius: 50%; transition: 0.3s; }
         .status-dot.connected { background: var(--teal); box-shadow: 0 0 8px var(--teal); }
         main { display: flex; flex: 1; overflow: hidden; }
@@ -143,6 +144,7 @@
         h1 { font-size: 1rem; gap: 8px; }
         h1 .app-logo { width: 28px; height: 28px; }
         h1 .subtitle-tag { display: none; }
+        h1 .product-of { font-size: 0.65rem; margin-left: 0.5rem; }
         #drawer-toggle-btn { background: transparent; border: none; color: var(--text-muted); padding: 8px; position: relative; }
         #drawer-toggle-btn .icon { width: 24px; height: 24px; }
         #drawer-toggle-btn.has-waiting::after {
@@ -219,7 +221,7 @@
     </div>
 
     <header>
-        <h1><img src="/logo.png" alt="" class="app-logo" width="28" height="28"><span class="status-dot" id="status-dot"></span> Aegis Secure Chat <span class="subtitle-tag" style="font-size:0.75rem;color:var(--amber);font-weight:normal;">Media</span></h1>
+        <h1><img src="/logo.png" alt="Geodata" class="app-logo" width="28" height="28"><span class="status-dot" id="status-dot"></span> Secure Chat <span class="subtitle-tag" style="font-size:0.75rem;color:var(--amber);font-weight:normal;">Media</span><span class="product-of">( A product of Geodatatek, USA )</span></h1>
         <button id="drawer-toggle-btn" type="button" aria-label="Open menu">
             <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6h16"/><path d="M4 12h16"/><path d="M4 18h16"/></svg>
         </button>
@@ -265,7 +267,7 @@
                     <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><path d="M12 17h.01"/></svg>
                     <span>Help</span>
                 </button>
-                <button id="about-btn" class="menu-row" type="button" title="About Aegis Secure Chat — coming soon" aria-label="About">
+                <button id="about-btn" class="menu-row" type="button" title="About Secure Chat — coming soon" aria-label="About">
                     <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg>
                     <span>About</span>
                 </button>

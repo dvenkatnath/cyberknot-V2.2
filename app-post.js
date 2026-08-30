@@ -1,4 +1,4 @@
-// Aegis Secure Chat -- shared engine, part 2 (runs AFTER ice-config.js + cyberknot.js)
+// Secure Chat -- shared engine, part 2 (runs AFTER ice-config.js + cyberknot.js)
 // Event wiring, signaling, blob relay, waiting room, UI updates.
 
         function uint8ArrayToBase64(bytes) {

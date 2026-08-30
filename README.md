@@ -1,4 +1,4 @@
-# Aegis Secure Chat — WhatsApp-style Media
+# Secure Chat — WhatsApp-style Media
 
 Sibling project to [Aegis-chat-multi](../Aegischat-MLS) with **hybrid file transfer**:
 

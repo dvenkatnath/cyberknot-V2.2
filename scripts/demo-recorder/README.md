@@ -85,7 +85,7 @@ node record-demo.mjs --base http://localhost:8080 --view host
 
 ## What the video shows
 
-1. Host opens Aegis Secure Chat (WASM loads)
+1. Host opens Secure Chat (WASM loads)
 2. **Create Invite** → guest link generated
 3. Guest opens invite link (second browser)
 4. Host **Connect Peer** → Offer JSON
@@ -110,7 +110,7 @@ Add a title card (optional):
 
 ```bash
 ffmpeg -f lavfi -i color=c=0x020817:s=1440x900:d=3 \
-  -vf "drawtext=text='Aegis Secure Chat':fontsize=48:fontcolor=white:x=(w-text_w)/2:y=(h-text_h)/2" \
+  -vf "drawtext=text='Secure Chat':fontsize=48:fontcolor=white:x=(w-text_w)/2:y=(h-text_h)/2" \
   -c:v libx264 title.mp4
 
 ffmpeg -i title.mp4 -i aegis-product-demo.mp4 -filter_complex "[0:v][1:v]concat=n=2:v=1:a=0" final-demo.mp4

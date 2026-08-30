@@ -2,7 +2,7 @@
 'use strict';
 
 /*
- * keyserver.js — Aegis Secure Chat key transparency server.
+ * keyserver.js — Secure Chat key transparency server.
  *
  * Security fixes applied (from audit findings):
  *
@@ -865,7 +865,7 @@ wss.on('connection', (ws, req) => {
 });
 
 server.listen(PORT, '0.0.0.0', () => {
-  console.log(`Aegis keyserver listening on 0.0.0.0:${PORT}`);
+  console.log(`Secure Chat keyserver listening on 0.0.0.0:${PORT}`);
   console.log(`  CORS_ORIGIN : ${CORS_ORIGIN || '* (dev mode)'}`);
   console.log(`  NODE_ENV    : ${NODE_ENV}`);
   console.log(`  WS relay    : ws://<host>:${PORT}/ws  (waiting room + handshake automation)`);

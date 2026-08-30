@@ -26,7 +26,7 @@ const H = 900;
 
 /* Pauses via punctuation — neural voices read these naturally */
 const NARRATION = `
-Welcome to Aegis Secure Chat.
+Welcome to Secure Chat.
 An invite-only, end-to-end encrypted messaging platform, built for zero-trust communication.
 
 Every session combines WebRTC with DTLS transport, ECDH key agreement,

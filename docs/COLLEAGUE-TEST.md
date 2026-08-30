@@ -1,6 +1,6 @@
 # Colleague test guide
 
-Remote testing for **Aegis Secure Chat** on the production server. You only need a browser — no VPN, no Mac mini, no manual copy-paste of Offer/Answer JSON.
+Remote testing for **Secure Chat** on the production server. You only need a browser — no VPN, no Mac mini, no manual copy-paste of Offer/Answer JSON.
 
 ## Production URL
 
