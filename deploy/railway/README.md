@@ -1,11 +1,11 @@
-# Railway deployment — Aegis-chat-multi
+# Railway deployment — Geodata Secure Chat
 
 Single-service deploy: Node keyserver serves the static app (`dist/`) plus `/api/*` and `/ws`.
 
 ## Prerequisites
 
-- Railway project: **Aegis-chat-multi**
-- GitHub repo: `dvenkatnath/Aegis-chat-multi`
+- Railway project: **Geodata-Secure-chat**
+- GitHub repo: `dvenkatnath/Geodata-Secure-chat`
 - Authenticated CLI: `railway login`
 
 ## Generate Domain is disabled?
@@ -15,7 +15,7 @@ Railway only enables **Generate Domain** when the service is **deployed and list
 ### 1. Confirm the deployment is healthy
 - Open your **service** (not just the project) → **Deployments**
 - Latest deploy must be **Success** / green
-- Open **Logs** — you should see: `Aegis keyserver listening on 0.0.0.0:XXXX`
+- Open **Logs** — you should see: `Secure Chat keyserver listening on 0.0.0.0:XXXX`
 - If logs show `FATAL: CORS_ORIGIN` or crash loops, redeploy after the latest Git push
 
 ### 2. Remove TCP Proxy (most common UI blocker)
@@ -34,8 +34,8 @@ Sometimes the button in Settings is disabled, but the **service tile** on the pr
 ### 5. Use CLI as fallback
 ```bash
 railway login
-cd /path/to/Aegis-chat-multi
-railway link --project Aegis-chat-multi
+cd /path/to/Geodata-Secure-chat
+railway link --project Geodata-Secure-chat
 railway domain --json
 ```
 
@@ -47,7 +47,7 @@ Railway does **not** assign a URL automatically. After the first successful depl
 
 ### Option A — Dashboard (easiest)
 
-1. Open https://railway.com/dashboard → **Aegis-chat-multi**
+1. Open https://railway.com/dashboard → **Geodata-Secure-chat**
 2. Click your **service** (the one connected to GitHub)
 3. Go to **Settings** → **Networking** → **Public Networking**
 4. Click **Generate Domain**
@@ -56,7 +56,7 @@ Railway does **not** assign a URL automatically. After the first successful depl
 ### Option B — CLI
 
 ```bash
-cd /path/to/Aegis-chat-multi
+cd /path/to/Geodata-Secure-chat
 railway login
 ./scripts/railway-get-link.sh
 ```
