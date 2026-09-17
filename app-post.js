@@ -1450,6 +1450,206 @@
             statusDot.classList.toggle('connected', anyOpen);
         }
 
+        const callBtn = document.getElementById('call-btn');
+        const hangupBtn = document.getElementById('hangup-btn');
+        const muteBtn = document.getElementById('mute-btn');
+        const cameraBtn = document.getElementById('camera-btn');
+        const videoCallPanel = document.getElementById('video-call-panel');
+        const videoGrid = document.getElementById('video-grid');
+
+        /*
+         * ===== Audio/video calling (additive) =====
+         * Adds local camera/mic tracks to the SAME RTCPeerConnection each
+         * peer already has for chat + file transfer — no new transport and
+         * no new key exchange. Media rides the DTLS-SRTP session that was
+         * already established and safety-number-verified for that peer;
+         * nothing here calls establishSessionKey, wrapSignal,
+         * parseAndVerifySignal, or any CyberKnot/WASM function, and no
+         * cryptographic file is touched by this feature.
+         */
+        function getOrCreateVideoTile(connId, label, isLocal) {
+            let tile = document.getElementById(`video-tile-${connId}`);
+            if (tile) return tile.querySelector('video');
+            tile = document.createElement('div');
+            tile.className = 'video-tile' + (isLocal ? ' local' : '');
+            tile.id = `video-tile-${connId}`;
+            const video = document.createElement('video');
+            video.autoplay = true;
+            video.playsInline = true;
+            if (isLocal) video.muted = true; /* never echo our own mic back */
+            const nameTag = document.createElement('span');
+            nameTag.className = 'video-tile-label';
+            nameTag.textContent = label || (isLocal ? 'You' : 'Peer');
+            tile.appendChild(video);
+            tile.appendChild(nameTag);
+            videoGrid.appendChild(tile);
+            return video;
+        }
+
+        function removeVideoTile(connId) {
+            const tile = document.getElementById(`video-tile-${connId}`);
+            if (tile) tile.remove();
+        }
+
+        function updateCallButtons() {
+            callBtn.disabled = callActive;
+            hangupBtn.disabled = !callActive;
+            muteBtn.disabled = !callActive;
+            cameraBtn.disabled = !callActive;
+            muteBtn.textContent = micEnabled ? '\ud83c\udfa4 Mute' : '\ud83d\udd07 Unmute';
+            cameraBtn.textContent = camEnabled ? '\ud83d\udcf7 Camera off' : '\ud83d\udcf7 Camera on';
+            videoCallPanel.classList.toggle('show', callActive);
+        }
+
+        async function ensureLocalMedia() {
+            if (localMediaStream) return localMediaStream;
+            localMediaStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: true });
+            const localVideo = getOrCreateVideoTile('local', 'You', true);
+            localVideo.srcObject = localMediaStream;
+            return localMediaStream;
+        }
+
+        function attachTracksToPeer(peer) {
+            if (!peer.pc || !localMediaStream) return;
+            for (const track of localMediaStream.getTracks()) {
+                if (peer.senders[track.kind]) continue; /* already added for this peer */
+                peer.senders[track.kind] = peer.pc.addTrack(track, localMediaStream);
+            }
+        }
+
+        function detachTracksFromPeer(peer) {
+            if (!peer.pc) return;
+            for (const kind of ['audio', 'video']) {
+                const sender = peer.senders[kind];
+                if (sender) {
+                    try { peer.pc.removeTrack(sender); } catch (_) { /* connection already gone */ }
+                    peer.senders[kind] = null;
+                }
+            }
+        }
+
+        function bindMediaHandlers(peer) {
+            peer.pc.ontrack = (event) => {
+                if (!peer.remoteStream) peer.remoteStream = new MediaStream();
+                peer.remoteStream.addTrack(event.track);
+                const video = getOrCreateVideoTile(peer.connId, peer.name, false);
+                video.srcObject = peer.remoteStream;
+                event.track.onended = () => {
+                    peer.remoteStream.removeTrack(event.track);
+                    if (peer.remoteStream.getTracks().length === 0) removeVideoTile(peer.connId);
+                };
+            };
+            peer.pc.onnegotiationneeded = async () => {
+                /* createDataChannel() above fires this once immediately, for
+                   the very first offer — that one is driven manually by
+                   generateOffer()/processSignalString(), with its own ECDH
+                   key exchange and fingerprint verification. Only act here
+                   once the session key already exists, i.e. this is a later
+                   track add/remove during an active call. */
+                if (!peer.sessionKeyReady || peer.negotiating) return;
+                try {
+                    peer.negotiating = true;
+                    const offer = await peer.pc.createOffer();
+                    await peer.pc.setLocalDescription(offer);
+                    sendRelayRenegotiate(peer, peer.pc.localDescription);
+                } catch (err) {
+                    peer.negotiating = false;
+                    console.warn('Renegotiation offer failed:', err);
+                }
+            };
+        }
+
+        /*
+         * Handles a renegotiation offer/answer arriving over the relay.
+         * Uses the standard "perfect negotiation" collision rule (guest is
+         * polite, host is impolite) so two people starting a call at the
+         * same instant on both ends resolve deterministically instead of
+         * leaving one side's offer stuck. Never touches session keys or
+         * fingerprints — the DTLS transport (and its verified fingerprint)
+         * is unchanged by renegotiation.
+         */
+        async function handleRenegotiateSignal(peer, raw) {
+            if (!peer?.pc) return;
+            let desc;
+            try {
+                desc = JSON.parse(raw);
+            } catch (_) {
+                return;
+            }
+            const polite = inviteRole === 'guest';
+            try {
+                if (desc.type === 'offer') {
+                    const collision = peer.pc.signalingState !== 'stable' || peer.negotiating;
+                    peer.ignoreOffer = !polite && collision;
+                    if (peer.ignoreOffer) return;
+                    if (collision) {
+                        await Promise.all([
+                            peer.pc.setLocalDescription({ type: 'rollback' }),
+                            peer.pc.setRemoteDescription(desc)
+                        ]);
+                    } else {
+                        await peer.pc.setRemoteDescription(desc);
+                    }
+                    const answer = await peer.pc.createAnswer();
+                    await peer.pc.setLocalDescription(answer);
+                    sendRelayRenegotiate(peer, peer.pc.localDescription);
+                    peer.negotiating = false;
+                } else if (desc.type === 'answer') {
+                    if (peer.pc.signalingState === 'have-local-offer') {
+                        await peer.pc.setRemoteDescription(desc);
+                    }
+                    peer.negotiating = false;
+                }
+            } catch (err) {
+                peer.negotiating = false;
+                console.warn('Renegotiation handling failed:', err);
+            }
+        }
+
+        callBtn.onclick = async () => {
+            if (callActive) return;
+            try {
+                await ensureLocalMedia();
+                callActive = true;
+                for (const peer of peers.values()) {
+                    if (peer.pc && peer.sessionKeyReady) attachTracksToPeer(peer);
+                }
+                updateCallButtons();
+                addMessage('Call started \u2014 your camera and mic are now live to connected, verified peers.', 'system');
+            } catch (err) {
+                addMessage(`Could not start call: ${err.message}`, 'system');
+            }
+        };
+
+        hangupBtn.onclick = () => {
+            if (!callActive) return;
+            for (const peer of peers.values()) detachTracksFromPeer(peer);
+            if (localMediaStream) {
+                for (const track of localMediaStream.getTracks()) track.stop();
+                localMediaStream = null;
+            }
+            removeVideoTile('local');
+            callActive = false;
+            micEnabled = true;
+            camEnabled = true;
+            updateCallButtons();
+            addMessage('Call ended.', 'system');
+        };
+
+        muteBtn.onclick = () => {
+            if (!localMediaStream) return;
+            micEnabled = !micEnabled;
+            for (const track of localMediaStream.getAudioTracks()) track.enabled = micEnabled;
+            updateCallButtons();
+        };
+
+        cameraBtn.onclick = () => {
+            if (!localMediaStream) return;
+            camEnabled = !camEnabled;
+            for (const track of localMediaStream.getVideoTracks()) track.enabled = camEnabled;
+            updateCallButtons();
+        };
+
         function closePeer(connId) {
             const peer = peers.get(connId);
             if (!peer) return;
@@ -1469,6 +1669,10 @@
                 }
                 activeWasmKeyPeerId = null;
             }
+            if (peer.remoteStream) {
+                for (const track of peer.remoteStream.getTracks()) { try { track.stop(); } catch (_) { /* ignore */ } }
+            }
+            removeVideoTile(connId);
             peers.delete(connId);
             updateStatusDot();
             updateSecurityPanel();
@@ -1476,6 +1680,15 @@
 
         function closeAllPeers() {
             for (const connId of [...peers.keys()]) closePeer(connId);
+            if (localMediaStream) {
+                for (const track of localMediaStream.getTracks()) { try { track.stop(); } catch (_) { /* ignore */ } }
+                localMediaStream = null;
+            }
+            removeVideoTile('local');
+            callActive = false;
+            micEnabled = true;
+            camEnabled = true;
+            updateCallButtons();
             hostEcdhKeyPair = null;
             incomingFiles.clear();
             incomingMessages.clear();
@@ -1716,11 +1929,13 @@
             setupDataChannel(peer, connId);
             bindIceCandidateHandler(peer);
             peer.pc.ondatachannel = (event) => setupDataChannel(peer, connId, event.channel);
+            bindMediaHandlers(peer);
 
             peer.signalPublished = false;
             signalArea.value = '';
             signalArea.placeholder = 'Generating Offer JSON… please wait';
 
+            if (callActive) attachTracksToPeer(peer); /* joining an in-progress call */
             const offer = await peer.pc.createOffer();
             await peer.pc.setLocalDescription(offer);
             addMessage(`Connecting${peer.name ? ' to ' + peer.name : ''} — establishing secure channel…`, 'system');
@@ -1800,6 +2015,7 @@
                 peer.trickleIce = relayTrickleEnabled();
                 bindConnectionSecurityHandlers(peer.pc, peer);
                 peer.pc.ondatachannel = (event) => setupDataChannel(peer, peer.connId, event.channel);
+                bindMediaHandlers(peer);
 
                 bindIceCandidateHandler(peer);
                 await peer.pc.setRemoteDescription(signalData);
@@ -1816,6 +2032,7 @@
 
                 peer.signalPublished = false;
                 signalArea.value = '';
+                if (callActive) attachTracksToPeer(peer); /* joining an in-progress call */
                 const answer = await peer.pc.createAnswer();
                 await peer.pc.setLocalDescription(answer);
                 try {
@@ -2078,6 +2295,19 @@
                         console.warn('ICE candidate relay failed:', err);
                     }
                     break;
+
+                case 'renegotiate': {
+                    let renegPeer;
+                    if (role === 'guest') {
+                        renegPeer = peers.get(HOST_PEER_KEY);
+                    } else {
+                        renegPeer = peers.get(msg.connId);
+                    }
+                    if (renegPeer && msg.payload != null) {
+                        await handleRenegotiateSignal(renegPeer, msg.payload);
+                    }
+                    break;
+                }
 
                 case 'error':
                     if (/invite not found|expired/i.test(msg.message || '')) {

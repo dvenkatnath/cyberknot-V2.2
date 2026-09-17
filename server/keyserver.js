@@ -828,6 +828,35 @@ wss.on('connection', (ws, req) => {
         break;
       }
 
+      case 'renegotiate': {
+        /*
+         * Opaque forwarding only, identical trust model to 'signal' and
+         * 'ice-candidate' above — added so an already-admitted pair can
+         * renegotiate their existing DTLS session to add/remove audio
+         * and video tracks (calling) without a new key exchange. The
+         * server does not parse or validate payload contents.
+         */
+        const room = rooms.get(boundInviteId);
+        if (!room) return;
+        if (boundRole === 'host') {
+          const targetId = msg.connId;
+          const guest = targetId ? room.guests.get(targetId) : null;
+          if (guest && room.admittedConnIds.has(targetId)) {
+            safeSend(guest.ws, JSON.stringify({
+              type: 'renegotiate',
+              payload: msg.payload ?? null
+            }));
+          }
+        } else if (boundRole === 'guest' && room.admittedConnIds.has(boundConnId)) {
+          safeSend(room.hostWs, JSON.stringify({
+            type: 'renegotiate',
+            connId: boundConnId,
+            payload: msg.payload ?? null
+          }));
+        }
+        break;
+      }
+
       default:
         safeSend(ws, JSON.stringify({ type: 'error', message: `unknown type: ${msg.type}` }));
     }

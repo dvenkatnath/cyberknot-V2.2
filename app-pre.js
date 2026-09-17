@@ -31,6 +31,14 @@
         let hostEcdhKeyPair = null;     /* host's ECDH keypair — one, reused for every guest */
         let activeWasmKeyPeerId = null; /* which peer's key is currently loaded in WASM */
 
+        /* --- audio/video calling: one local camera/mic shared across every
+           peer connection; media rides the SAME already-authenticated DTLS
+           transport as chat/files, so it inherits that verification --- */
+        let localMediaStream = null;
+        let callActive = false;
+        let micEnabled = true;
+        let camEnabled = true;
+
         function makePeer(connId, name) {
             return {
                 connId,
@@ -66,7 +74,13 @@
                 iceRestartCount: 0,
                 lastHeartbeatAck: 0,
                 recoveryFailedNotified: false,
-                leftNoticeSent: false
+                leftNoticeSent: false,
+                /* --- audio/video calling (additive; does not touch the
+                   data-channel or session-key state above) --- */
+                remoteStream: null,
+                senders: { audio: null, video: null },
+                negotiating: false,
+                ignoreOffer: false
             };
         }
 
@@ -456,6 +470,30 @@
         function sendRelayIceCandidate(peer, candidateInit) {
             if (!relayTrickleEnabled()) return;
             const body = { type: 'ice-candidate', payload: candidateInit };
+            if (inviteRole === 'host') {
+                body.connId = peer.connId;
+            }
+            relayWs.send(JSON.stringify(body));
+        }
+
+        /*
+         * Renegotiation for adding/removing audio+video tracks after the
+         * initial data-channel handshake. Reuses the same opaque /ws relay
+         * as sendRelayIceCandidate — no new server trust, no ECDH, no
+         * fingerprint re-check: renegotiation stays on the SAME DTLS
+         * transport (same certificate) that was already verified, so the
+         * safety number / fingerprint check done at connect time still
+         * covers the media added here.
+         */
+        function sendRelayRenegotiate(peer, descriptionInit) {
+            if (!relayTrickleEnabled()) {
+                addMessage('Cannot update call — signaling relay is not connected.', 'system');
+                return;
+            }
+            const body = {
+                type: 'renegotiate',
+                payload: JSON.stringify({ type: descriptionInit.type, sdp: descriptionInit.sdp })
+            };
             if (inviteRole === 'host') {
                 body.connId = peer.connId;
             }

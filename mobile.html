@@ -132,6 +132,18 @@
         .peer-card .peer-safety-confirm-btn { width: 100%; background: var(--teal); color: #fff; padding: 7px; border-radius: 6px; margin-top: 4px; font-size: 0.78rem; }
         details.manual-fallback { font-size: 0.78rem; color: var(--text-muted); }
         details.manual-fallback summary { cursor: pointer; padding: 4px 0; }
+        #video-call-panel { display: none; background: var(--surface-2); border-bottom: 1px solid var(--border-08); padding: 10px; }
+        #video-call-panel.show { display: block; }
+        #video-grid { display: flex; flex-wrap: wrap; gap: 10px; justify-content: center; max-height: 42vh; overflow-y: auto; }
+        .video-tile { position: relative; width: 200px; aspect-ratio: 4/3; background: #000; border-radius: 8px; overflow: hidden; border: 1px solid var(--border-12); }
+        .video-tile video { width: 100%; height: 100%; object-fit: cover; display: block; }
+        .video-tile.local { border-color: var(--teal); }
+        .video-tile-label { position: absolute; bottom: 4px; left: 6px; font-size: 0.72rem; color: #fff; background: rgba(0,0,0,0.45); padding: 2px 6px; border-radius: 4px; }
+        .call-controls { display: flex; gap: 8px; justify-content: center; margin-top: 8px; flex-wrap: wrap; }
+        .call-controls button { font-size: 0.8rem; padding: 8px 14px; }
+        #call-btn { background: var(--teal); color: white; }
+        #hangup-btn { background: var(--red); color: white; }
+        #mute-btn, #camera-btn { background: transparent; border: 1px solid var(--border-18); color: var(--text-muted); }
 
         /* ============ Mobile-first layout overrides below ============ */
         /* Same theme, same component classes above (so dynamically-injected
@@ -199,6 +211,8 @@
         .drawer-panel { padding: 6px 16px; }
         .drawer-panel textarea, .drawer-panel input[type="password"] { width: 100%; }
         .drawer-divider { height: 1px; background: var(--border-06); margin: 8px 16px; }
+        #video-call-panel { border-bottom: none; padding: 8px 4px; }
+        .video-tile { width: 150px; }
     </style>
     <script>
         (function () {
@@ -250,6 +264,10 @@
                 </div>
 
                 <div class="drawer-section-label">Actions</div>
+                <button id="call-btn" class="menu-row" type="button" title="Start an audio/video call with connected peers" aria-label="Start call">
+                    <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m22 8-6 4 6 4V8Z"/><rect width="14" height="12" x="2" y="6" rx="2" ry="2"/></svg>
+                    <span>Start call</span>
+                </button>
                 <button id="create-invite-btn" class="menu-row" type="button" title="Create a one-time invite link to share with a guest" aria-label="Create invite">
                     <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 21a8 8 0 0 1 13.292-6"/><circle cx="10" cy="8" r="5"/><path d="M19 16v6"/><path d="M22 19h-6"/></svg>
                     <span>Create invite link</span>
@@ -314,6 +332,14 @@
         </aside>
 
         <div class="chat-area">
+            <div id="video-call-panel">
+                <div id="video-grid"></div>
+                <div class="call-controls">
+                    <button id="mute-btn" type="button" disabled>🎤 Mute</button>
+                    <button id="camera-btn" type="button" disabled>📷 Camera off</button>
+                    <button id="hangup-btn" type="button" disabled>📵 Hang up</button>
+                </div>
+            </div>
             <div id="chat-box"><div class="msg system">Establishing secure proprietary channel… Large files (&gt;20 MB) use encrypted cloud relay (WhatsApp-style); smaller files stay pure P2P.</div></div>
             <div id="file-transfer-banner" role="status" aria-live="polite"></div>
             <div class="input-area">

@@ -1,32 +1,87 @@
-# Changes in this build — automated waiting room + handshake
+# Changes in this build — audio/video calling
 
 ## Summary
 
-Replaces manual copy-paste of Offer/Answer JSON with an automated
-handshake through a blind relay, adds a waiting room with host
-admit/deny, and adds a Short Authentication String ("safety number")
-that both participants confirm before chat unlocks. This closes the
-verification gap that manual copy-paste accidentally provided, while
-removing the tedious part.
+Adds an explicit "Call" button that turns on camera + microphone and
+sends audio/video to every currently-connected, safety-number-verified
+peer, alongside the existing text chat and file transfer — nothing
+starts automatically, and nobody's camera turns on without them
+clicking the button. Mute, camera-off, and hang-up controls are
+included. This is additive: no cryptographic file, key-exchange
+function, or signaling-verification function was changed.
 
 ## What changed
 
-- `server/keyserver.js` — added a WebSocket relay at `/ws`: presence
-  notifications, admit/deny, and opaque signal forwarding between an
-  admitted host/guest pair. In-memory only, nothing persisted to disk.
-- `server/package.json` — added the `ws` dependency (v8.18.0).
-- `index.html` — added a guest name-entry modal, a waiting-room panel
-  with Admit/Deny, a safety-number display and confirm step, and the
-  WebSocket client that drives all of it. The manual Offer/Answer
-  textarea remains, collapsed under "Advanced / manual signaling".
-- `scripts/e2e-test/test-relay.cjs` — new automated test for the relay
-  protocol (see below).
+- `app-pre.js` — added per-peer state fields (`remoteStream`,
+  `senders`, `negotiating`, `ignoreOffer`), call-level globals
+  (`localMediaStream`, `callActive`, `micEnabled`, `camEnabled`), and
+  `sendRelayRenegotiate()`, a thin wrapper around the existing relay
+  send path (mirrors `sendRelayIceCandidate()`).
+- `app-post.js` — added the call UI wiring (`getOrCreateVideoTile`,
+  `removeVideoTile`, `updateCallButtons`, `ensureLocalMedia`,
+  `attachTracksToPeer`, `detachTracksFromPeer`, `bindMediaHandlers`,
+  `handleRenegotiateSignal`, and the `callBtn` / `hangupBtn` /
+  `muteBtn` / `cameraBtn` click handlers). Added a `case 'renegotiate'`
+  branch to the existing relay-message switch. Extended `closePeer()`
+  and `closeAllPeers()` to stop media tracks and remove video tiles
+  alongside their existing cleanup.
+- `server/keyserver.js` — added a `case 'renegotiate'` to the `/ws`
+  relay, in the same opaque-forwarding shape as the existing
+  `ice-candidate` case: the server relays the payload by connection id
+  and does not parse, validate, or log its contents.
+- `index.html`, `mobile.html` — added a "Call" button, a video-tile
+  grid, and mute/camera/hang-up buttons. Pure markup + CSS; no
+  signaling or crypto logic lives in either file.
+
+## How it works, and why it's safe to add here
+
+Adding a camera/mic track to an `RTCPeerConnection` that's already
+connected requires renegotiating the SDP (a new offer/answer), which
+is what `sendRelayRenegotiate` / `handleRenegotiateSignal` / the new
+relay case do. Critically, renegotiation reuses the **same DTLS
+transport and certificate** as the original connection — the
+fingerprint that was already checked against the safety number at
+connect time does not change when tracks are added. So:
+
+- No new key exchange. `establishSessionKey`, `wrapSignal`,
+  `parseAndVerifySignal`, and every CyberKnot/WASM call are untouched
+  and are never invoked by the call code.
+- No new trust decision for the relay server. The new `renegotiate`
+  message type is forwarded exactly like `ice-candidate` already is —
+  opaque, connection-id-scoped, no parsing.
+- Media (SRTP) is encrypted by the same DTLS session whose fingerprint
+  the two sides already verified via the safety number. A call started
+  after that confirmation inherits it; nothing further to confirm.
+- `onnegotiationneeded` is guarded by `peer.sessionKeyReady` so it does
+  nothing during the very first (manually-driven) offer/answer, only
+  firing for later track add/remove — and uses the standard "perfect
+  negotiation" collision rule (guest polite, host impolite) so both
+  sides starting a call at the same instant resolve deterministically.
+
+## Known limitation — read before assuming "everyone sees everyone"
+
+This app's topology (unchanged by this update) is a **star through the
+host**, not a mesh: a guest only ever holds one peer connection, to the
+host, keyed `HOST_PEER_KEY`. Guests never connect directly to each
+other — this is exactly why text messages are relayed by the host to
+each guest individually, and it applies to calling too:
+
+- The **host** sees and hears every admitted guest's camera/mic (one
+  tile per guest).
+- Each **guest** sees and hears only the **host's** camera/mic, not
+  other guests' — there is no peer connection between guests to carry
+  that media, and this update does not add an SFU or any
+  decode/re-encode relay to bridge that gap.
+
+If guest-to-guest visibility is wanted, that is materially new
+engineering (an SFU, or moving to the mesh/MLS architecture already
+flagged as a separate, larger change in prior notes) — out of scope
+for this pass, and called out here rather than left implicit.
 
 ## What did NOT change — verified, not assumed
 
-Every cryptographic artifact and function is byte-for-byte or
-function-for-function identical to the version in this backup before
-these changes:
+Every cryptographic artifact is byte-for-byte identical to the version
+before this change:
 
 | Artifact | MD5 |
 |---|---|
@@ -41,141 +96,43 @@ these changes:
 | `src/bridge.c` | `743b305d3082e85df9ad1376f33044b3` |
 
 Re-verify yourself: `md5sum cyberknot.wasm cyberknot.js src/*.c` and
-compare against the table above.
+compare against the table above (matches the table already recorded in
+this project's history for the prior build).
 
-The following JavaScript functions in `index.html` were extracted and
-diffed character-for-character against the pre-change version —
-`generateEcdhKeyPair`, `exportPublicKeyB64`, `importPublicKeyB64`,
-`deriveSessionPassword`, `hmacSign`, `hmacVerify` — all identical.
-The `Module._bridge_encrypt_b64` / `_bridge_decrypt_b64` /
-`_bridge_set_session_key` / `_bridge_clear_session_key` call sites are
-also unchanged.
-
-## Why this is safe to automate
-
-The relay only transports data that a human was already copying and
-pasting by hand: SDP offer/answer (which contains network paths and a
-DTLS fingerprint, not a secret) and exported ECDH public keys (public
-by definition). None of this is the room secret and none of it is the
-derived session key — those never touch the server, exactly as
-before. The existing DTLS fingerprint cross-check (already present in
-the app) plus the new safety-number check together catch a relay that
-tried to substitute a key during the automated exchange — a stronger
-position than the manual flow, which had no equivalent verification
-step at all beyond trusting the copy-paste itself.
+`establishSessionKey`, `wrapSignal`, `parseAndVerifySignal`,
+`verifyLiveFingerprint`, `verifyHostKeyTransparency`, and every
+`Module._bridge_*` call site are unmodified — grep for them shows the
+call sites this update added are all new lines, not edits to existing
+ones.
 
 ## Testing performed
 
-`node scripts/e2e-test/test-relay.cjs` starts a real instance of the
-modified server and asserts, against real WebSocket connections:
+- `md5sum` of every crypto artifact, before and after, confirmed
+  identical (table above).
+- `node --check` on `app-pre.js`, `app-post.js`, and
+  `server/keyserver.js` — all parse cleanly.
+- Started the real server locally (`node server/keyserver.js` against
+  a copy of `dist/` with the patched files) and confirmed `index.html`,
+  `mobile.html`, `app-pre.js`, and `app-post.js` all serve `200 OK`
+  with no server-side errors in the log.
+- Confirmed every DOM id the new JS looks up (`call-btn`, `hangup-btn`,
+  `mute-btn`, `camera-btn`, `video-call-panel`, `video-grid`) exists
+  exactly once in both `index.html` and `mobile.html` — a missing id
+  would throw at page-load time (`callBtn.onclick = ...` on `null`)
+  and break the whole app, not just calling, so this was checked
+  explicitly rather than assumed.
+- `git status`/`git diff --stat` confirms only the five intended files
+  changed — nothing else was touched.
 
-1. Host registration is acknowledged.
-2. A guest's join produces a presence notification to the host with
-   the correct name and connection id.
-3. A second guest also appears in presence.
-4. Admitting the first guest sends that guest an `admitted` event.
-5. The second, unadmitted guest is denied and its connection closed.
-6. Signal data sent host → guest reaches only the admitted guest,
-   payload byte-identical to what was sent.
-7. The denied second guest never receives that signal data.
-8. The guest's answer reaches the host tagged with the correct
-   connection id, payload byte-identical.
-9. A malformed invite id is rejected with an error rather than
-   silently accepted.
-10. Flooding the relay with messages triggers the rate limiter.
-11. Closing the host's connection tears down the room; a late joiner
-    gets a clear "not found or expired" error rather than reaching an
-    orphaned room.
+## What was NOT tested (do this yourself before relying on it)
 
-All 12 assertions pass. This is a protocol-level test against the real
-server code, not a mock.
-
-## What was not built in this pass
-
-Multi-party sessions (3 or more participants) are out of scope for
-this change. The current codebase — before and after this change —
-supports exactly one host and one guest. A group session mechanism
-(the MLS/OpenMLS approach discussed separately) is materially new
-engineering and was not attempted here.
-
-## Update — multi-guest support (up to 5 simultaneous guests)
-
-### What changed
-
-- `server/keyserver.js` — the relay now tracks `admittedConnIds` as a
-  set (was a single value), capped at `MAX_ACTIVE_GUESTS = 5`. Admitting
-  one guest no longer auto-denies others; each can be admitted
-  independently up to the cap. Signal routing requires an explicit
-  target `connId` on every message rather than falling back to a single
-  slot.
-- `index.html` — the entire connection-management layer was
-  restructured from module-global singleton state (`peerConnection`,
-  `dataChannel`, `ecdhKeyPair`, `sessionKeyReady`, `fingerprintVerified`,
-  and related variables) to an explicit per-peer state object stored in
-  a `Map<connId, peerState>`. This was necessary, not cosmetic: the old
-  globals were closed over by asynchronous WebRTC event callbacks (ICE
-  candidates, data channel open/message events), and swapping a shared
-  global's contents between guests would have let one guest's
-  in-flight callback read or corrupt another guest's state under real
-  concurrency.
-- The host's ECDH keypair is generated once and reused across every
-  guest connection — this is cryptographically sound because the
-  shared secret is still unique per guest (it depends on the guest's
-  own distinct public key too), and it means no change was needed to
-  the existing key-transparency endpoint or its slot scheme.
-- CyberKnot's WASM module holds exactly one active session key at a
-  time (see `src/bridge.c`). The correct peer's key is now installed
-  immediately before each encrypt/decrypt call, synchronously with no
-  `await` in between — safe because JS is single-threaded and each
-  encrypt call generates its own fresh random IV internally rather than
-  relying on a shared counter, so switching keys between peers
-  introduces no IV-reuse risk.
-- Topology is a host-hub star: guests connect only to the host, not to
-  each other. When the host receives a message from one guest, it
-  re-encrypts it once per other connected guest and forwards it. This
-  is an act of a legitimate call participant relaying to other
-  legitimate participants — it does not touch or weaken the
-  opaque-relay property of `keyserver.js`, which still never holds a
-  key or sees plaintext.
-- The security/safety-number panel changed from a single fixed display
-  to a dynamically rendered list, one card per connected peer.
-- Added `scripts/e2e-test/test-relay-multiguest.cjs`.
-
-### What did NOT change — re-verified after this update
-
-The same checksum table from the section above still applies —
-`cyberknot.wasm`, `cyberknot.js`, and every C source file are
-byte-identical, re-verified after this round of changes. The six
-key-derivation JavaScript functions were re-diffed function-by-function
-against the original upload and remain identical.
-
-### Testing performed for this update
-
-`node scripts/e2e-test/test-relay-multiguest.cjs` — 24 assertions, all
-passing: five guests admitted simultaneously, a sixth correctly
-rejected at the cap, signal data addressed to one guest never reaching
-another, a guest disconnecting without disturbing the others, and a new
-guest able to join once a slot frees up.
-
-`node scripts/e2e-test/test-relay.cjs` — updated to reflect the new
-intended behavior (a second guest is no longer auto-denied when the
-first is admitted) and re-run — 12 assertions, all passing.
-
-### The honest boundary of what was verified
-
-The relay/signaling protocol was tested against the real running
-server with real WebSocket clients, exactly as described above. The
-browser-side WebRTC and Web Crypto layer — the actual per-peer
-encrypted connections, the per-peer safety-number computation and UI,
-and the host-hub message fan-out logic — was written and statically
-reviewed with the same care (every call site checked for consistent
-argument passing, every old global reference searched for and
-confirmed removed, every function this update touched confirmed to
-exist), but this sandbox has no browser and cannot execute
-`RTCPeerConnection` or the WASM module. **It has not been exercised
-end-to-end with real browser tabs.** Test it with real browsers before
-relying on it for anything sensitive, particularly the multi-guest fan
-out and the per-peer WASM re-keying under real concurrent traffic.
+This sandbox has no browser and cannot open two real tabs against each
+other, so the actual `getUserMedia` → `addTrack` → renegotiate →
+`ontrack` flow has not been exercised end-to-end with real media. Test
+it with real browsers, on both a host tab and at least one guest tab,
+before relying on it for anything sensitive — the renegotiation glare
+handling (both sides starting a call at once) in particular deserves a
+deliberate double-click test, not just the happy path.
 
 ## How to test it yourself, end to end
 
@@ -184,13 +141,12 @@ cd server && npm install --omit=dev && cd ..
 ./scripts/run-local.sh
 ```
 
-Open several browser tabs at `http://localhost:8080` — one for the
-host, one for each guest (up to 5). In the host tab, click Create
-Invite and copy the guest link. In each guest tab, open that link,
-enter a name, and wait. Back in the host tab, each name appears in the
-waiting room — click Admit for each one you want to bring in. Every
-admitted host/guest pair will automatically complete its own handshake
-and display its own 6-digit safety code. Confirm on both sides of each
-pair that the codes match, click Confirm, and that pair's channel
-unlocks. Send a message from any tab — the host relays it to everyone
-else, so all connected guests see it.
+Open a host tab and at least one guest tab as usual (Create Invite →
+Admit → safety number confirm). Once that pair's channel is unlocked,
+click **Call** in either tab. The clicking side's camera/mic tile
+appears immediately; the other side's video tile appears once its
+`ontrack` fires. Try clicking Call on both sides within the same
+second, to exercise the renegotiation-collision path. Test Mute,
+Camera off, and Hang up on both sides. With a host + 2 guests, confirm
+the host sees both guests' video, and that each guest sees only the
+host's.
