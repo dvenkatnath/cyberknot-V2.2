@@ -1492,18 +1492,76 @@
         }
 
         function updateCallButtons() {
+            const hasVideo = !!localMediaStream?.getVideoTracks().length;
             callBtn.disabled = callActive;
             hangupBtn.disabled = !callActive;
-            muteBtn.disabled = !callActive;
-            cameraBtn.disabled = !callActive;
+            muteBtn.disabled = !callActive || !localMediaStream?.getAudioTracks().length;
+            cameraBtn.disabled = !callActive || !hasVideo;
             muteBtn.textContent = micEnabled ? '\ud83c\udfa4 Mute' : '\ud83d\udd07 Unmute';
             cameraBtn.textContent = camEnabled ? '\ud83d\udcf7 Camera off' : '\ud83d\udcf7 Camera on';
             videoCallPanel.classList.toggle('show', callActive);
         }
 
+        /* Safari reports a missing camera or mic as OverconstrainedError
+           "Invalid constraint" instead of NotFoundError, and it rejects the
+           whole getUserMedia call when either device cannot be satisfied.
+           Retry audio and video separately so a voice call still starts. */
+        function mediaErrorIsRetryable(err) {
+            const name = err?.name || '';
+            if (name === 'NotAllowedError' || name === 'PermissionDeniedError' || name === 'SecurityError') return false;
+            return name === 'OverconstrainedError'
+                || name === 'NotFoundError'
+                || name === 'NotReadableError'
+                || name === 'AbortError'
+                || /invalid constraint/i.test(err?.message || '');
+        }
+
+        function mediaStartError(err) {
+            const name = err?.name || '';
+            const message = err?.message || 'unknown error';
+            if (name === 'NotAllowedError' || name === 'PermissionDeniedError') {
+                return 'Camera and microphone permission was blocked. Allow them for this site in Safari, then click Call again.';
+            }
+            if (name === 'SecurityError') {
+                return 'Camera and microphone need localhost or HTTPS.';
+            }
+            if (/invalid constraint/i.test(message) || name === 'OverconstrainedError' || name === 'NotFoundError') {
+                return 'No camera or microphone was available. Allow Safari under System Settings \u2192 Privacy & Security \u2192 Camera and Microphone, then click Call again.';
+            }
+            return message;
+        }
+
         async function ensureLocalMedia() {
             if (localMediaStream) return localMediaStream;
-            localMediaStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: true });
+            if (!navigator.mediaDevices?.getUserMedia) {
+                throw new Error('Camera and microphone are unavailable in this browser. Open the app at http://localhost:8080 or over HTTPS.');
+            }
+            const request = (constraints) => navigator.mediaDevices.getUserMedia(constraints);
+            let combinedError = null;
+            try {
+                localMediaStream = await request({ audio: true, video: true });
+            } catch (err) {
+                combinedError = err;
+                if (!mediaErrorIsRetryable(err)) throw err;
+                let audioStream = null;
+                let videoStream = null;
+                try {
+                    audioStream = await request({ audio: true, video: false });
+                } catch (audioErr) {
+                    if (!mediaErrorIsRetryable(audioErr)) throw audioErr;
+                }
+                try {
+                    videoStream = await request({ audio: false, video: true });
+                } catch (videoErr) {
+                    if (!audioStream && !mediaErrorIsRetryable(videoErr)) throw videoErr;
+                }
+                const tracks = [
+                    ...(audioStream ? audioStream.getTracks() : []),
+                    ...(videoStream ? videoStream.getTracks() : [])
+                ];
+                if (!tracks.length) throw combinedError;
+                localMediaStream = new MediaStream(tracks);
+            }
             const localVideo = getOrCreateVideoTile('local', 'You', true);
             localVideo.srcObject = localMediaStream;
             return localMediaStream;
@@ -1615,9 +1673,16 @@
                     if (peer.pc && peer.sessionKeyReady) attachTracksToPeer(peer);
                 }
                 updateCallButtons();
-                addMessage('Call started \u2014 your camera and mic are now live to connected, verified peers.', 'system');
+                const hasAudio = localMediaStream.getAudioTracks().length > 0;
+                const hasVideo = localMediaStream.getVideoTracks().length > 0;
+                const devices = hasAudio && hasVideo
+                    ? 'your camera and mic are now live'
+                    : hasAudio
+                        ? 'your microphone is live (no camera was available)'
+                        : 'your camera is live (no microphone was available)';
+                addMessage(`Call started \u2014 ${devices} to connected, verified peers.`, 'system');
             } catch (err) {
-                addMessage(`Could not start call: ${err.message}`, 'system');
+                addMessage(`Could not start call: ${mediaStartError(err)}`, 'system');
             }
         };
 

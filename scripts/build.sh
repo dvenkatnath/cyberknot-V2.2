@@ -40,6 +40,9 @@ done
 
 echo "==> Copying static assets..."
 cp "$ROOT/index.html" "$DIST/"
+cp "$ROOT/mobile.html" "$DIST/"
+cp "$ROOT/app-pre.js" "$DIST/"
+cp "$ROOT/app-post.js" "$DIST/"
 cp "$ROOT/ice-config.js" "$DIST/"
 cp "$ROOT/assets/favicon.svg" "$DIST/favicon.svg"
 cp "$ICON_DIR/favicon-16.png" "$DIST/favicon-16.png"
