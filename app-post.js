@@ -1492,8 +1492,37 @@
             return sendFileBufferLegacy(file.name, file.size, new Uint8Array(buffer), onProgress);
         }
 
+        /* Keep the screen awake while a peer connection is open. A locked iPhone
+         * suspends Safari, which closes the connection mid-transfer. This only
+         * stops auto-lock; pressing the power button still suspends the page.
+         * Unsupported browsers simply ignore it. */
+        let screenWakeLock = null;
+        async function requestScreenWakeLock() {
+            try {
+                if (!('wakeLock' in navigator) || screenWakeLock || document.visibilityState !== 'visible') return;
+                const lock = await navigator.wakeLock.request('screen');
+                screenWakeLock = lock;
+                lock.addEventListener('release', () => { if (screenWakeLock === lock) screenWakeLock = null; });
+            } catch (_) { /* denied or unsupported: nothing to do */ }
+        }
+        function releaseScreenWakeLock() {
+            const lock = screenWakeLock;
+            screenWakeLock = null;
+            if (lock) { try { lock.release(); } catch (_) { /* already released */ } }
+        }
+        function anyPeerChannelOpen() {
+            return [...peers.values()].some((p) => p.dc && p.dc.readyState === 'open');
+        }
+        /* iOS may refuse the request until the user touches the page, and drops the
+         * lock whenever the page is hidden, so retry on touch and on return. */
+        document.addEventListener('pointerdown', () => { if (anyPeerChannelOpen()) requestScreenWakeLock(); }, { passive: true });
+        document.addEventListener('visibilitychange', () => {
+            if (document.visibilityState === 'visible' && anyPeerChannelOpen()) requestScreenWakeLock();
+        });
+
         function updateStatusDot() {
             const anyOpen = [...peers.values()].some((p) => p.dc && p.dc.readyState === 'open');
+            if (anyOpen) requestScreenWakeLock(); else releaseScreenWakeLock();
             statusDot.classList.toggle('connected', anyOpen);
             statusDot.title = anyOpen ? 'Connected' : 'Disconnected';
             statusDot.setAttribute('aria-label', statusDot.title);
