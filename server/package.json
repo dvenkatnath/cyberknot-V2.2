@@ -1,8 +1,8 @@
 {
-  "name": "aegis-chat-whatsapp",
+  "name": "cyberknot-secure-chat",
   "version": "1.0.0",
   "private": true,
-  "description": "Secure Chat with WhatsApp-style encrypted blob relay for large files",
+  "description": "CyberKnot Secure Chat with an encrypted blob relay for large files",
   "main": "keyserver.js",
   "scripts": {
     "start": "node keyserver.js"

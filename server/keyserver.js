@@ -598,7 +598,7 @@ function sanitizeName(name) {
 
 /* ---------- routes ---------- */
 app.get('/health', (_req, res) => {
-  res.json({ ok: true, service: 'aegis-chat-whatsapp', blobStore: true });
+  res.json({ ok: true, service: 'cyberknot-secure-chat', blobStore: true });
 });
 
 /* The page needs TURN credentials before the user has joined anything, so this
