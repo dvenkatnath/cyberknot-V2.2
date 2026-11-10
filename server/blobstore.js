@@ -11,6 +11,7 @@ const BLOB_MAX_BYTES = Number(process.env.BLOB_MAX_BYTES || 500 * 1024 * 1024);
 const BLOB_TOTAL_MAX_BYTES = Number(process.env.BLOB_TOTAL_MAX_BYTES || 2 * 1024 * 1024 * 1024);
 const BLOB_MAX_PER_INVITE = Number(process.env.BLOB_MAX_PER_INVITE || 20);
 const BLOB_MAX_BYTES_PER_INVITE = Number(process.env.BLOB_MAX_BYTES_PER_INVITE || 1024 * 1024 * 1024);
+const BLOB_PART_OVERHEAD_BYTES = 1024;
 const BLOB_MAX_PART_BYTES = Number(process.env.BLOB_MAX_PART_BYTES || 6 * 1024 * 1024);
 
 function isValidProof(proof) {
@@ -169,7 +170,11 @@ function createBlobStore({ dataDir, rateLimit, rateLimitParts, isKnownInvite }) 
       meta.partSizes = meta.partSizes || {};
       let stored = 0;
       for (const [i, n] of Object.entries(meta.partSizes)) if (Number(i) !== index) stored += n;
-      if (stored + req.body.length > meta.size) {
+      /* The declared size is the plaintext size; each part is AES-GCM
+       * encrypted client-side (12-byte IV + 16-byte tag), so allow a small
+       * per-part overhead on top of it. */
+      const allowed = meta.size + meta.totalParts * BLOB_PART_OVERHEAD_BYTES;
+      if (stored + req.body.length > allowed) {
         return res.status(413).json({ error: 'upload exceeds the declared size' });
       }
       meta.partSizes[index] = req.body.length;
