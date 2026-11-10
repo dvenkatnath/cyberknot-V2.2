@@ -97,7 +97,7 @@
             const params = new URLSearchParams(hash);
             const token = params.get('invite');
             if (!token) {
-                addMessage('Invalid URL — invite token missing from link.', 'system');
+                addMessage('Invalid URL — invite token missing from link.', 'notice');
                 return;
             }
             try {
@@ -354,7 +354,7 @@
                         console.warn('Stats fingerprint mismatch, retrying…', result.fp, expected);
                     } else if (allowTerminate && attempt >= attempts - 1) {
                         stopFingerprintVerificationPoll(peer);
-                        addMessage(`SECURITY ALERT: DTLS fingerprint mismatch${label} — connection terminated.`, 'system');
+                        addMessage(`SECURITY ALERT: DTLS fingerprint mismatch${label} — connection terminated.`, 'notice warn');
                         closePeer(peer.connId);
                     }
                     updateSecurityPanel();
@@ -723,7 +723,7 @@
                 await maybeStartSas(peer);
             } catch (err) {
                 console.error('Safety number computation failed:', err);
-                addMessage('Could not compute safety check — verify identity by other means before sending sensitive data.', 'system');
+                addMessage('Could not compute safety check — verify identity by other means before sending sensitive data.', 'notice warn');
             }
         }
 
@@ -923,7 +923,7 @@
                 relay();
             } else if (payload.type === 'file-blob-ref') {
                 downloadBlobFile(peer, payload).catch((err) => {
-                    addMessage(`File download failed: ${err.message}`, 'system');
+                    addMessage(`File download failed: ${err.message}`, 'notice');
                 });
                 if (inviteRole === 'host') {
                     forwardBlobRefToOthers(peer.connId, payload, fromLabel).catch((err) => {
@@ -1925,7 +1925,7 @@
                 startPeerConnectWatchdog(peer);
                 updateSecurityPanel();
             } catch (err) {
-                addMessage(`Could not connect to ${otherName || 'participant'}: ${err.message}`, 'system');
+                addMessage(`Could not connect to ${otherName || 'participant'}: ${err.message}`, 'notice');
                 peers.delete(otherConnId);
             }
         }
@@ -1963,7 +1963,7 @@
                 updateSecurityPanel();
             } catch (err) {
                 console.error('Mesh offer handling failed:', err);
-                addMessage(`Connection from ${fromName || 'a participant'} failed: ${err.message}`, 'system');
+                addMessage(`Connection from ${fromName || 'a participant'} failed: ${err.message}`, 'notice');
             }
         }
 
@@ -1984,7 +1984,7 @@
                 updateSecurityPanel();
             } catch (err) {
                 console.error('Mesh answer handling failed:', err);
-                addMessage(`Connection to ${peer.name || 'a participant'} failed: ${err.message}`, 'system');
+                addMessage(`Connection to ${peer.name || 'a participant'} failed: ${err.message}`, 'notice');
             }
         }
 
@@ -2045,7 +2045,7 @@
                             handleIncomingPayload(peer, item.inner);
                         }
                     } catch (err) {
-                        addMessage(`Error receiving message: ${err.message}`, 'system');
+                        addMessage(`Error receiving message: ${err.message}`, 'notice');
                     }
                 }
             } finally {
@@ -2488,7 +2488,7 @@
             try {
                 createInviteSession();
             } catch (err) {
-                addMessage(`Create invite failed: ${err.message}`, 'system');
+                addMessage(`Create invite failed: ${err.message}`, 'notice');
             }
         };
 
@@ -2753,7 +2753,7 @@
                 await processSignalString(raw, peer);
             } catch (err) {
                 console.error('Signaling failed:', err);
-                addMessage(`Signaling error: ${err.message}`, 'system');
+                addMessage(`Signaling error: ${err.message}`, 'notice');
             }
         };
 
@@ -2778,7 +2778,7 @@
             try {
                 relayWs = new WebSocket(relayUrl());
             } catch (err) {
-                addMessage(`Waiting room unavailable: ${err.message}. Use manual signaling below.`, 'system');
+                addMessage(`Waiting room unavailable: ${err.message}. Use manual signaling below.`, 'notice');
                 return;
             }
             relayWs.onopen = () => {
@@ -2917,7 +2917,7 @@
                         }
                     } catch (err) {
                         console.error('Automated signaling failed:', err);
-                        addMessage(`Automated signaling error: ${err.message}`, 'system');
+                        addMessage(`Automated signaling error: ${err.message}`, 'notice');
                     }
                     break;
 
@@ -3048,7 +3048,7 @@
                 relayWs.send(JSON.stringify({ type: 'signal', connId, payload: offerStr }));
                 addMessage(`Offer sent automatically to ${name || 'guest'} — waiting for them to connect…`, 'system');
             } catch (err) {
-                addMessage(`Auto-connect to ${name || 'guest'} failed: ${err.message}`, 'system');
+                addMessage(`Auto-connect to ${name || 'guest'} failed: ${err.message}`, 'notice');
             }
         }
 
@@ -3139,7 +3139,7 @@
                     }
                 } catch (err) {
                     console.error('Failed to process message:', err);
-                    addMessage(`Error receiving message: ${err.message}`, 'system');
+                    addMessage(`Error receiving message: ${err.message}`, 'notice');
                 }
             };
         }
@@ -3149,7 +3149,7 @@
             if (!text) return;
             const readyPeers = [...peers.values()].filter(peerCanSend);
             if (readyPeers.length === 0) {
-                addMessage('No connected peer to send to yet.', 'system');
+                addMessage('No connected peer to send to yet.', 'notice');
                 return;
             }
             try {
@@ -3158,7 +3158,7 @@
                 msgInput.value = '';
             } catch (err) {
                 console.error('Send failed:', err);
-                addMessage(`Send failed: ${err.message}`, 'system');
+                addMessage(`Send failed: ${err.message}`, 'notice');
             }
         }
 
@@ -3193,7 +3193,7 @@
                     clearFileTransferStatus();
                 } catch (err) {
                     clearFileTransferStatus();
-                    addMessage(`File send failed: ${err.message}`, 'system');
+                    addMessage(`File send failed: ${err.message}`, 'notice');
                 }
             };
 

@@ -792,7 +792,7 @@
                         handleSecureEnvelope(peer, envelope);
                     }
                 } catch (err) {
-                    addMessage(`Error receiving message: ${err.message}`, 'system');
+                    addMessage(`Error receiving message: ${err.message}`, 'notice');
                 }
             }
         }
@@ -807,7 +807,7 @@
             onAbort: (reason) => {
                 wasmReady = false;
                 for (const peer of peers.values()) peer.sessionKeyReady = false;
-                addMessage(`WASM error: ${reason}`, 'system');
+                addMessage(`WASM error: ${reason}`, 'notice');
                 updateSecurityPanel();
             }
         };
@@ -818,7 +818,7 @@
         setTimeout(() => {
             clearInterval(wasmPoll);
             if (!wasmReady) {
-                addMessage('Encryption module failed to load — hard-refresh (Cmd+Shift+R).', 'system');
+                addMessage('Encryption module failed to load — hard-refresh (Cmd+Shift+R).', 'notice');
             }
         }, 30000);
 
