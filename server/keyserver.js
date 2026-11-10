@@ -769,6 +769,27 @@ wss.on('connection', (ws, req) => {
         guest.admitted = true;
         room.admittedConnIds.add(connId);
         safeSend(guest.ws, JSON.stringify({ type: 'admitted' }));
+
+        /*
+         * Mesh roster: names/connIds only, so each admitted guest knows
+         * who to open a direct peer connection with. This is metadata
+         * about the room's membership, not signaling content — the
+         * actual offer/answer/ICE exchange between guests still goes
+         * through 'peer-relay' below, opaque to the server exactly like
+         * 'signal' and 'ice-candidate' already are.
+         */
+        const existingPeers = [...room.admittedConnIds]
+          .filter((id) => id !== connId)
+          .map((id) => ({ connId: id, name: room.guests.get(id)?.name || 'Guest' }));
+        if (existingPeers.length) {
+          safeSend(guest.ws, JSON.stringify({ type: 'peer-roster', peers: existingPeers }));
+        }
+        const joinedMsg = JSON.stringify({ type: 'peer-joined', connId, name: guest.name });
+        for (const [otherId, otherGuest] of room.guests.entries()) {
+          if (otherId !== connId && room.admittedConnIds.has(otherId)) {
+            safeSend(otherGuest.ws, joinedMsg);
+          }
+        }
         break;
       }
 
@@ -828,32 +849,27 @@ wss.on('connection', (ws, req) => {
         break;
       }
 
-      case 'renegotiate': {
+      case 'peer-relay': {
         /*
-         * Opaque forwarding only, identical trust model to 'signal' and
-         * 'ice-candidate' above — added so an already-admitted pair can
-         * renegotiate their existing DTLS session to add/remove audio
-         * and video tracks (calling) without a new key exchange. The
-         * server does not parse or validate payload contents.
+         * Guest-to-guest opaque forwarding for mesh calling. Identical
+         * trust model to 'ice-candidate' — the server does not parse the
+         * payload, and only forwards between two participants who are
+         * BOTH already admitted into this room. Host-to-guest signaling
+         * keeps using 'signal' / 'ice-candidate' / 'renegotiate' above,
+         * unchanged; this is only for the guest<->guest edges those
+         * don't cover.
          */
+        if (boundRole !== 'guest' || !boundConnId) return;
         const room = rooms.get(boundInviteId);
-        if (!room) return;
-        if (boundRole === 'host') {
-          const targetId = msg.connId;
-          const guest = targetId ? room.guests.get(targetId) : null;
-          if (guest && room.admittedConnIds.has(targetId)) {
-            safeSend(guest.ws, JSON.stringify({
-              type: 'renegotiate',
-              payload: msg.payload ?? null
-            }));
-          }
-        } else if (boundRole === 'guest' && room.admittedConnIds.has(boundConnId)) {
-          safeSend(room.hostWs, JSON.stringify({
-            type: 'renegotiate',
-            connId: boundConnId,
-            payload: msg.payload ?? null
-          }));
-        }
+        if (!room || !room.admittedConnIds.has(boundConnId)) return;
+        const targetId = msg.to;
+        const target = targetId ? room.guests.get(targetId) : null;
+        if (!target || !room.admittedConnIds.has(targetId)) return;
+        safeSend(target.ws, JSON.stringify({
+          type: 'peer-relay',
+          from: boundConnId,
+          payload: msg.payload ?? null
+        }));
         break;
       }
 
@@ -889,6 +905,17 @@ wss.on('connection', (ws, req) => {
         name: guestName,
         wasAdmitted
       }));
+      if (wasAdmitted) {
+        const leftMsg = JSON.stringify({
+          type: 'peer-left',
+          connId: boundConnId,
+          name: guestName,
+          wasAdmitted: true
+        });
+        for (const otherGuest of room.guests.values()) {
+          safeSend(otherGuest.ws, leftMsg);
+        }
+      }
     }
   });
 });

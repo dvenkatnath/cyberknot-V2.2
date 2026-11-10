@@ -39,6 +39,12 @@
         let micEnabled = true;
         let camEnabled = true;
 
+        /* --- mesh calling: guest<->guest direct connections, alongside
+           the existing host<->guest star (unchanged). connId -> display
+           name, known from the relay's roster/joined messages, before a
+           peer object necessarily exists yet. --- */
+        const meshPeerNames = new Map();
+
         function makePeer(connId, name) {
             return {
                 connId,
@@ -80,7 +86,18 @@
                 remoteStream: null,
                 senders: { audio: null, video: null },
                 negotiating: false,
-                ignoreOffer: false
+                negotiationPending: false, /* another renegotiation was
+                   requested while one was already in flight — drain it
+                   once the in-flight one finishes, instead of dropping it */
+                ignoreOffer: false,
+                /* --- safety-number commit/reveal, held content, signed renegotiation --- */
+                sas: null,
+                myPubKeyB64: null,
+                heldUntilConfirmed: [],
+                releasingHeld: false,
+                heldNoticeShown: false,
+                renegSendSeq: 0,
+                renegRecvSeq: 0
             };
         }
 
@@ -476,30 +493,6 @@
             relayWs.send(JSON.stringify(body));
         }
 
-        /*
-         * Renegotiation for adding/removing audio+video tracks after the
-         * initial data-channel handshake. Reuses the same opaque /ws relay
-         * as sendRelayIceCandidate — no new server trust, no ECDH, no
-         * fingerprint re-check: renegotiation stays on the SAME DTLS
-         * transport (same certificate) that was already verified, so the
-         * safety number / fingerprint check done at connect time still
-         * covers the media added here.
-         */
-        function sendRelayRenegotiate(peer, descriptionInit) {
-            if (!relayTrickleEnabled()) {
-                addMessage('Cannot update call — signaling relay is not connected.', 'system');
-                return;
-            }
-            const body = {
-                type: 'renegotiate',
-                payload: JSON.stringify({ type: descriptionInit.type, sdp: descriptionInit.sdp })
-            };
-            if (inviteRole === 'host') {
-                body.connId = peer.connId;
-            }
-            relayWs.send(JSON.stringify(body));
-        }
-
         function flushPendingLocalIce(peer) {
             if (!peer.trickleIce || !peer.pendingLocalIce?.length) return;
             const pending = peer.pendingLocalIce.splice(0);
@@ -668,6 +661,11 @@
             // inviteRole is 'host', which only happens after a user action —
             // by then both scripts have already loaded.
             if (inviteRole === 'host' && typeof refreshRoster === 'function') refreshRoster();
+            /* Call / Hang up availability follows peer state. Guarded because this
+               can run while app-post.js is still loading. */
+            if (typeof updateCallButtons === 'function') {
+                try { updateCallButtons(); } catch (_) { /* call UI not initialised yet */ }
+            }
         }
 
         function renderPeerStatusList() {
@@ -738,16 +736,24 @@
                         : peerReadyForSafetyConfirm(peer)
                             ? 'Confirm — codes match'
                             : 'Waiting for secure channel…';
-                    confirmBtn.disabled = peer.safetyConfirmed || !peerReadyForSafetyConfirm(peer);
+                    confirmBtn.disabled = peer.safetyConfirmed || !peerReadyForSafetyConfirm(peer) || !peer.safetyCode;
                     confirmBtn.onclick = async () => {
                         if (!peerReadyForSafetyConfirm(peer)) {
                             addMessage('Wait for P2P channel open and DTLS verified before confirming.', 'system');
                             return;
                         }
+                        if (!peer.safetyCode) {
+                            addMessage('Safety code is still being agreed with the other side. Wait for the 6 digits to appear.', 'system');
+                            return;
+                        }
                         peer.safetyConfirmed = true;
                         updateSecurityPanel();
+                        /* Releases anything held back until now: queued messages/files,
+                           this peer's audio/video, and our own tracks toward them. */
+                        if (typeof onPeerSafetyConfirmed === 'function') onPeerSafetyConfirmed(peer);
                         if (peerCanSend(peer) && wasmReady && keyTransparencyOk) {
                             addMessage(`Safety check confirmed with ${peer.name || 'peer'} — unlocked.`, 'system');
+                            if (typeof announceReady === 'function') announceReady(peer);
                         } else {
                             const missing = getSendBlockers().join(', ');
                             addMessage(`Safety code confirmed — still waiting for: ${missing}.`, 'system');

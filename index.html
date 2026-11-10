@@ -59,6 +59,18 @@
         header { background: var(--panel-bg); padding: 15px 20px; border-bottom: 1px solid var(--border-08); display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; }
         h1 { font-size: 1.2rem; letter-spacing: 1px; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
         .app-logo { width: 36px; height: 36px; object-fit: contain; flex-shrink: 0; filter: drop-shadow(0 0 8px var(--shadow-logo)); }
+        .app-logo.ck { width: auto; height: 46px; filter: none; margin-right: -6px; }
+        .app-logo.ck-light { display: none; }
+        :root.theme-light .app-logo.ck-dark { display: none; }
+        :root.theme-light .app-logo.ck-light { display: inline-block; }
+        .brand { display: flex; flex-direction: column; align-items: flex-start; gap: 3px; line-height: 1; min-width: 0; }
+        .brand .wm-row { display: flex; align-items: center; gap: 7px; }
+        .brand .wm-row .status-dot { width: 13px; height: 13px; flex-shrink: 0; }
+        .brand .wordmark { height: 24px; width: auto; display: block; }
+        .brand .wordmark.wm-light { display: none; }
+        :root.theme-light .brand .wordmark.wm-dark { display: none; }
+        :root.theme-light .brand .wordmark.wm-light { display: block; }
+        .brand .tagline { font-size: 0.66rem; font-weight: 500; letter-spacing: 0.6px; color: var(--text-muted); white-space: nowrap; }
         .status-dot { width: 10px; height: 10px; background: #ef4444; border-radius: 50%; transition: 0.3s; }
         .status-dot.connected { background: var(--teal); box-shadow: 0 0 8px var(--teal); }
         main { display: flex; flex: 1; overflow: hidden; }
@@ -66,6 +78,11 @@
         #chat-box { flex: 1; overflow-y: auto; padding: 20px; display: flex; flex-direction: column; gap: 15px; }
         .msg { max-width: 70%; padding: 12px 16px; border-radius: 12px 12px 12px 2px; background: rgba(127, 119, 221, 0.1); border: 1px solid rgba(127, 119, 221, 0.3); font-size: 0.95rem; word-break: break-word; }
         .msg.system { max-width: 100%; color: var(--text-muted); font-size: 0.85rem; border-color: var(--border-08); background: var(--border-03); }
+        #chat-box:not(.show-logs) .msg.system { display: none; }
+        .msg.notice { max-width: 100%; font-size: 0.9rem; color: var(--text-main); border-color: rgba(29, 158, 117, 0.45); background: rgba(29, 158, 117, 0.08); }
+        .msg.notice.warn { border-color: var(--red); background: rgba(248, 113, 113, 0.1); color: var(--red); }
+        #logs-toggle { display: inline-flex; align-items: center; gap: 8px; padding: 12px 14px; border: 1px solid var(--border-18); border-radius: 8px; color: var(--text-muted); font-weight: bold; font-size: 0.85rem; cursor: pointer; user-select: none; }
+        #logs-checkbox { width: 16px; height: 16px; accent-color: var(--teal); cursor: pointer; }
         .msg.sent { align-self: flex-end; border-radius: 12px 12px 2px 12px; background: rgba(29, 158, 117, 0.1); border-color: rgba(29, 158, 117, 0.3); }
         .msg.file { border-color: var(--amber); background: rgba(239, 159, 39, 0.1); cursor: pointer; text-decoration: none; color: var(--amber); display: block; }
         .input-area { padding: 15px; background: var(--panel-bg); border-top: 1px solid var(--border-08); display: flex; gap: 10px; }
@@ -166,7 +183,7 @@
         </div>
     </div>
     <header>
-        <h1><img src="/logo.png" alt="Geodata" class="app-logo" width="36" height="36"><span class="status-dot" id="status-dot"></span> Secure Chat <span style="font-size:0.75rem;color:var(--amber);font-weight:normal;">Media</span></h1>
+        <h1><img src="cyberknot-icon-dark.svg" alt="" class="app-logo ck ck-dark"><img src="cyberknot-icon-light.svg" alt="" class="app-logo ck ck-light"><span class="brand"><span class="wm-row"><img src="cyberknot-wordmark-dark.png" alt="CyberKnot" class="wordmark wm-dark"><img src="cyberknot-wordmark-light.png" alt="CyberKnot" class="wordmark wm-light"><span class="status-dot" id="status-dot" role="img" aria-label="Disconnected" title="Disconnected"></span></span><span class="tagline">Defend signals. Protect networks. Preserve freedom.</span></span></h1>
         <div class="header-actions">
             <button id="call-btn" title="Start an audio/video call with connected peers" aria-label="Start call">
                 <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m22 8-6 4 6 4V8Z"/><rect width="14" height="12" x="2" y="6" rx="2" ry="2"/></svg>
@@ -180,6 +197,10 @@
                 <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/><path d="M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16"/><path d="M16 16h5v5"/></svg>
                 <span>Reset</span>
             </button>
+            <label id="logs-toggle" title="Show connection logs in the conversation">
+                <input type="checkbox" id="logs-checkbox">
+                <span>Logs</span>
+            </label>
             <button id="help-btn" title="Help — coming soon" aria-label="Help">
                 <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><path d="M12 17h.01"/></svg>
                 <span>Help</span>

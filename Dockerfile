@@ -16,6 +16,10 @@ COPY assets/icons/favicon-16.png /app/dist/favicon-16.png
 COPY assets/icons/favicon-32.png /app/dist/favicon-32.png
 COPY assets/icons/favicon-32.png /app/dist/favicon.ico
 COPY assets/icons/favicon-48.png /app/dist/logo.png
+COPY assets/cyberknot-wordmark-dark.png /app/dist/cyberknot-wordmark-dark.png
+COPY assets/cyberknot-wordmark-light.png /app/dist/cyberknot-wordmark-light.png
+COPY assets/cyberknot-icon-dark.svg /app/dist/cyberknot-icon-dark.svg
+COPY assets/cyberknot-icon-light.svg /app/dist/cyberknot-icon-light.svg
 COPY assets/icons/favicon-180.png /app/dist/apple-touch-icon.png
 COPY assets/icons/favicon-192.png /app/dist/favicon-192.png
 

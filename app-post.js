@@ -128,7 +128,7 @@
                 updateSecurityPanel();
                 preloadIceConfig();
             } catch (err) {
-                addMessage(`Invite error: ${err.message}`, 'system');
+                addMessage(`Invite error: ${err.message}`, 'notice');
             }
         }
 
@@ -505,8 +505,16 @@
             }
         }
 
+        /*
+         * Key transparency fails CLOSED. The "local dev" shortcuts below are
+         * only honoured on a localhost/.local origin. On any real deployment
+         * a missing, unreachable or erroring key endpoint is treated as an
+         * attack (the server is exactly the party this check guards against,
+         * so it must not be able to switch the check off by answering 404).
+         */
         async function registerPublicKey(role, pubKeyB64) {
             const proof = await hmacSign(getRoomSecret(), keyProofMessage(currentInviteId, role, pubKeyB64));
+            const devOk = isLocalDevOrigin();
             let response;
             try {
                 response = await fetch('/api/v1/keys', {
@@ -520,20 +528,36 @@
                     })
                 });
             } catch (_) {
+                if (!devOk) {
+                    throw new Error('Key transparency server unreachable. Refusing to continue without it.');
+                }
                 localDevMode = true;
                 keyTransparencyOk = true;
-                addMessage('Local dev: keyserver not running — skipped key registration. Use ./scripts/run-local.sh for full security.', 'system');
+                addMessage('Local dev: keyserver not running. Skipped key registration. Use ./scripts/run-local.sh for full security.', 'system');
                 updateSecurityPanel();
                 return;
             }
             if (response.status === 404 || response.status === 501) {
+                if (!devOk) {
+                    throw new Error(`Key transparency endpoint missing (HTTP ${response.status}). Refusing to continue without it.`);
+                }
                 localDevMode = true;
                 keyTransparencyOk = true;
                 addMessage('Local dev: static file server detected (python -m http.server). Use ./scripts/run-local.sh instead.', 'system');
                 updateSecurityPanel();
                 return;
             }
-            if (!response.ok && response.status !== 409) {
+            if (response.status === 409) {
+                /* The slot already holds a DIFFERENT key (same key returns 200).
+                   For the host that means someone else claimed this invite's host
+                   slot, or this tab lost its key (page reload): guests would
+                   reject us anyway, so stop here with a clear message. The guest
+                   slot is shared by all guests and is not verified by anyone, so
+                   a conflict there is expected for the 2nd+ guest. */
+                if (role === 'host') {
+                    throw new Error('A different host key is already registered for this invite. Create a new invite.');
+                }
+            } else if (!response.ok) {
                 const body = await response.json().catch(() => ({}));
                 throw new Error(body.error || `Key registration failed (${response.status})`);
             }
@@ -542,47 +566,40 @@
         }
 
         async function verifyHostKeyTransparency(expectedPubKeyB64) {
+            const devOk = isLocalDevOrigin();
+            const devSkip = (why) => {
+                localDevMode = true;
+                keyTransparencyOk = true;
+                addMessage(`Local dev: skipped key transparency verify (${why}).`, 'system');
+                updateSecurityPanel();
+            };
             let response;
             try {
                 response = await fetch(`/api/v1/keys/${encodeURIComponent(currentInviteId)}/host`, {
                     cache: 'no-store'
                 });
             } catch (_) {
-                if (localDevMode) {
-                    keyTransparencyOk = true;
-                    addMessage('Local dev: skipped key transparency verify (no keyserver).', 'system');
-                    updateSecurityPanel();
-                    return;
-                }
-                throw new Error('Cannot reach keyserver — run ./scripts/run-local.sh from the project folder.');
+                if (devOk && localDevMode) return devSkip('no keyserver');
+                throw new Error('Cannot reach the key transparency server. Connection refused for safety.');
             }
-            if ((response.status === 404 || response.status === 501) && localDevMode) {
-                keyTransparencyOk = true;
-                addMessage('Local dev: skipped key transparency verify.', 'system');
-                updateSecurityPanel();
-                return;
+            if (response.status === 404 || response.status === 501) {
+                if (devOk) return devSkip('host key not on local server');
+                throw new Error('Host public key is not on the transparency server. Refusing to connect. Ask the host to create a new invite.');
             }
             if (!response.ok) {
-                if (response.status === 404 || response.status === 501) {
-                    localDevMode = true;
-                    keyTransparencyOk = true;
-                    addMessage('Local dev: host key not on server — using HMAC-signed signal only.', 'system');
-                    updateSecurityPanel();
-                    return;
-                }
-                throw new Error('Host public key not found on transparency server — is ./scripts/run-local.sh running?');
+                throw new Error(`Key transparency lookup failed (HTTP ${response.status}). Refusing to connect.`);
             }
             const entry = await response.json();
             const proofValid = await hmacVerify(
                 getRoomSecret(),
                 keyProofMessage(entry.inviteId, entry.role, entry.pubKey),
                 entry.proof
-            );
-            if (!proofValid) {
-                throw new Error('Key transparency proof invalid — wrong invite secret or tampered log');
+            ).catch(() => false);
+            if (!proofValid || entry.inviteId !== currentInviteId || entry.role !== 'host') {
+                throw new Error('Key transparency proof invalid: wrong invite secret or tampered log');
             }
             if (entry.pubKey !== expectedPubKeyB64) {
-                throw new Error('Signaling public key differs from registered host key — possible MITM');
+                throw new Error('Signaling public key differs from registered host key: possible MITM');
             }
             keyTransparencyOk = true;
             addMessage('Host public key verified via transparency server.', 'system');
@@ -699,7 +716,11 @@
              */
             try {
                 const myPubKeyB64 = await exportPublicKeyB64(myKeyPair.publicKey);
-                await displaySafetyNumber(peer, myPubKeyB64, peerPubKeyB64);
+                peer.myPubKeyB64 = myPubKeyB64;
+                /* The code is no longer a plain hash of the two public keys (that
+                   could be ground offline). It is agreed by commit/reveal over the
+                   data channel: see maybeStartSas(). */
+                await maybeStartSas(peer);
             } catch (err) {
                 console.error('Safety number computation failed:', err);
                 addMessage('Could not compute safety check — verify identity by other means before sending sensitive data.', 'system');
@@ -856,7 +877,7 @@
             // assumed to be from whichever peer this connection belongs to
             // (the host's own message, on a guest's screen — no tag needed
             // there) or, on the host's own screen, from that connected guest.
-            const fromLabel = payload.senderName || (inviteRole === 'host' ? peer.name : null);
+            const fromLabel = trustedSenderLabel(peer, payload);
             const relay = (extra) => {
                 if (inviteRole === 'host') broadcastToOthers(peer.connId, { ...payload, ...extra, senderName: fromLabel });
             };
@@ -910,7 +931,7 @@
                     });
                 }
             } else if (payload.type === 'roster') {
-                renderParticipantsList(payload.participants);
+                /* handled in handleSecureEnvelope (host is the only accepted source) */
             } else {
                 throw new Error(`Unknown message type: ${payload.type}`);
             }
@@ -921,6 +942,27 @@
                 throw new Error('Rejected unencrypted message.');
             }
             const inner = JSON.parse(decryptMessageFor(peer, envelope.data));
+            if (isMeshOnlyPeer(peer)) {
+                /* Guest<->guest links carry calling only. Chat and files always
+                   come via the host, so anything arriving here is not something
+                   this app sends: drop it instead of showing it (it would
+                   otherwise appear unlabelled, i.e. as if the host wrote it). */
+                console.warn('Dropped unexpected content from a guest-to-guest link:', inner?.type);
+                return;
+            }
+            if (inner.type === 'roster') {
+                /* Names only, and only the host is the source of truth for it.
+                   Allowed before the safety check so the participant list is
+                   not empty while people are still confirming. */
+                if (inviteRole === 'guest' && Array.isArray(inner.participants)) {
+                    renderParticipantsList(inner.participants.filter((n) => typeof n === 'string').slice(0, 32));
+                }
+                return;
+            }
+            if (mustHoldContent(peer)) {
+                holdUntilConfirmed(peer, { inner });
+                return;
+            }
             handleIncomingPayload(peer, inner);
         }
 
@@ -1106,9 +1148,14 @@
             }
         }
 
-        async function handleSecureFileEnvelope(peer, envelope) {
+        async function handleSecureFileEnvelope(peer, envelope, fromHeld = false) {
             if (envelope.type !== 'secure-file') {
                 throw new Error('Invalid secure file envelope.');
+            }
+            if (isMeshOnlyPeer(peer)) return; /* guest<->guest: calling only */
+            if (!fromHeld && mustHoldContent(peer)) {
+                holdUntilConfirmed(peer, { fileEnvelope: envelope });
+                return;
             }
             const state = incomingFiles.get(envelope.id);
             if (!state || state.version !== 2) {
@@ -1256,7 +1303,7 @@
                 merged.set(part, offset);
                 offset += part.length;
             }
-            const blobFromLabel = payload.senderName || (inviteRole === 'host' ? peer.name : null);
+            const blobFromLabel = trustedSenderLabel(peer, payload);
             addFileMessageBlob(payload.name, payload.size, new Blob([merged]), blobFromLabel);
             addMessage(`Received file via encrypted relay: ${payload.name} (${formatBytes(payload.size)})`, 'received', blobFromLabel);
         }
@@ -1448,6 +1495,8 @@
         function updateStatusDot() {
             const anyOpen = [...peers.values()].some((p) => p.dc && p.dc.readyState === 'open');
             statusDot.classList.toggle('connected', anyOpen);
+            statusDot.title = anyOpen ? 'Connected' : 'Disconnected';
+            statusDot.setAttribute('aria-label', statusDot.title);
         }
 
         const callBtn = document.getElementById('call-btn');
@@ -1488,18 +1537,30 @@
 
         function removeVideoTile(connId) {
             const tile = document.getElementById(`video-tile-${connId}`);
-            if (tile) tile.remove();
+            if (tile) {
+                tile.remove();
+                updateCallButtons();
+            }
         }
 
         function updateCallButtons() {
             const hasVideo = !!localMediaStream?.getVideoTracks().length;
-            callBtn.disabled = callActive;
-            hangupBtn.disabled = !callActive;
+            /* Call stays greyed out until at least one peer is connected AND its
+               safety code has been confirmed. A guest can use Hang up to leave as
+               soon as it is in the session, whether or not its own camera is on. */
+            const anyReady = [...peers.values()].some(peerCanSend);
+            callBtn.disabled = callActive || !anyReady;
+            callBtn.title = anyReady
+                ? 'Start an audio/video call with connected peers'
+                : 'Available once you are connected and the safety code is confirmed';
+            hangupBtn.disabled = !(callActive || (inviteRole === 'guest' && peers.size > 0));
             muteBtn.disabled = !callActive || !localMediaStream?.getAudioTracks().length;
             cameraBtn.disabled = !callActive || !hasVideo;
             muteBtn.textContent = micEnabled ? '\ud83c\udfa4 Mute' : '\ud83d\udd07 Unmute';
             cameraBtn.textContent = camEnabled ? '\ud83d\udcf7 Camera off' : '\ud83d\udcf7 Camera on';
-            videoCallPanel.classList.toggle('show', callActive);
+            /* Show the panel whenever there is something in it: our own call, or
+               someone else's video (previously hidden until we clicked Call too). */
+            videoCallPanel.classList.toggle('show', callActive || videoGrid.children.length > 0);
         }
 
         /* Safari reports a missing camera or mic as OverconstrainedError
@@ -1569,6 +1630,9 @@
 
         function attachTracksToPeer(peer) {
             if (!peer.pc || !localMediaStream) return;
+            /* Never send camera/mic to a peer whose safety code the user has not
+               confirmed. onPeerSafetyConfirmed() calls this again on confirm. */
+            if (!peer.safetyConfirmed) return;
             for (const track of localMediaStream.getTracks()) {
                 if (peer.senders[track.kind]) continue; /* already added for this peer */
                 peer.senders[track.kind] = peer.pc.addTrack(track, localMediaStream);
@@ -1590,8 +1654,7 @@
             peer.pc.ontrack = (event) => {
                 if (!peer.remoteStream) peer.remoteStream = new MediaStream();
                 peer.remoteStream.addTrack(event.track);
-                const video = getOrCreateVideoTile(peer.connId, peer.name, false);
-                video.srcObject = peer.remoteStream;
+                showRemoteMediaIfConfirmed(peer); /* not rendered or played until confirmed */
                 event.track.onended = () => {
                     peer.remoteStream.removeTrack(event.track);
                     if (peer.remoteStream.getTracks().length === 0) removeVideoTile(peer.connId);
@@ -1604,17 +1667,48 @@
                    key exchange and fingerprint verification. Only act here
                    once the session key already exists, i.e. this is a later
                    track add/remove during an active call. */
-                if (!peer.sessionKeyReady || peer.negotiating) return;
-                try {
-                    peer.negotiating = true;
-                    const offer = await peer.pc.createOffer();
-                    await peer.pc.setLocalDescription(offer);
-                    sendRelayRenegotiate(peer, peer.pc.localDescription);
-                } catch (err) {
-                    peer.negotiating = false;
-                    console.warn('Renegotiation offer failed:', err);
+                if (!peer.sessionKeyReady) return;
+                if (peer.negotiating) {
+                    /* A renegotiation is already in flight (e.g. this is the
+                       video track's addTrack firing right after the audio
+                       track's already started one). Don't drop it — audio
+                       would go out but video never would. Remember it and
+                       drain it from clearNegotiating() below. */
+                    peer.negotiationPending = true;
+                    return;
                 }
+                await startRenegotiation(peer);
             };
+        }
+
+        async function startRenegotiation(peer) {
+            peer.negotiating = true;
+            try {
+                const offer = await peer.pc.createOffer();
+                await peer.pc.setLocalDescription(offer);
+                await sendAuthenticatedReneg(peer, peer.pc.localDescription);
+                /* offer sent — negotiating clears when the matching answer
+                   arrives (handleRenegotiateSignal), not here. */
+            } catch (err) {
+                console.warn('Renegotiation offer failed:', err);
+                clearNegotiating(peer);
+            }
+        }
+
+        /*
+         * Call this everywhere peer.negotiating would otherwise just be set
+         * to false. If another renegotiation was requested in the meantime
+         * (peer.negotiationPending), drain it now instead of leaving the
+         * remote side permanently missing whatever track change that
+         * dropped negotiation represented (this is the fix for tracks
+         * silently never appearing, or never disappearing, on one side).
+         */
+        function clearNegotiating(peer) {
+            peer.negotiating = false;
+            if (peer.negotiationPending) {
+                peer.negotiationPending = false;
+                startRenegotiation(peer);
+            }
         }
 
         /*
@@ -1626,15 +1720,11 @@
          * fingerprints — the DTLS transport (and its verified fingerprint)
          * is unchanged by renegotiation.
          */
-        async function handleRenegotiateSignal(peer, raw) {
+        async function applyRenegotiation(peer, desc) {
             if (!peer?.pc) return;
-            let desc;
-            try {
-                desc = JSON.parse(raw);
-            } catch (_) {
-                return;
-            }
-            const polite = inviteRole === 'guest';
+            const polite = inviteRole === 'guest' && !peer.isMeshPeer
+                ? true
+                : (peer.isMeshPeer ? !peer.isInitiator : false);
             try {
                 if (desc.type === 'offer') {
                     const collision = peer.pc.signalingState !== 'stable' || peer.negotiating;
@@ -1650,16 +1740,18 @@
                     }
                     const answer = await peer.pc.createAnswer();
                     await peer.pc.setLocalDescription(answer);
-                    sendRelayRenegotiate(peer, peer.pc.localDescription);
-                    peer.negotiating = false;
+                    await sendAuthenticatedReneg(peer, peer.pc.localDescription);
+                    pruneRemoteTracks(peer);
+                    clearNegotiating(peer);
                 } else if (desc.type === 'answer') {
                     if (peer.pc.signalingState === 'have-local-offer') {
                         await peer.pc.setRemoteDescription(desc);
                     }
-                    peer.negotiating = false;
+                    pruneRemoteTracks(peer);
+                    clearNegotiating(peer);
                 }
             } catch (err) {
-                peer.negotiating = false;
+                clearNegotiating(peer);
                 console.warn('Renegotiation handling failed:', err);
             }
         }
@@ -1682,11 +1774,15 @@
                         : 'your camera is live (no microphone was available)';
                 addMessage(`Call started \u2014 ${devices} to connected, verified peers.`, 'system');
             } catch (err) {
-                addMessage(`Could not start call: ${mediaStartError(err)}`, 'system');
+                addMessage(`Could not start call: ${mediaStartError(err)}`, 'notice');
             }
         };
 
         hangupBtn.onclick = () => {
+            if (inviteRole === 'guest') {
+                leaveSession();
+                return;
+            }
             if (!callActive) return;
             for (const peer of peers.values()) detachTracksFromPeer(peer);
             if (localMediaStream) {
@@ -1714,6 +1810,456 @@
             for (const track of localMediaStream.getVideoTracks()) track.enabled = camEnabled;
             updateCallButtons();
         };
+
+        /* Logs checkbox: connection/status lines ('system') are hidden unless it
+           is ticked. 'notice' lines (ready, someone left, security warnings,
+           things the user must act on) are always shown. */
+        const logsCheckbox = document.getElementById('logs-checkbox');
+        if (logsCheckbox) {
+            logsCheckbox.checked = false;
+            logsCheckbox.onchange = () => {
+                chatBox.classList.toggle('show-logs', logsCheckbox.checked);
+                chatBox.scrollTop = chatBox.scrollHeight;
+            };
+        }
+        updateCallButtons();
+
+        /*
+         * ===== Mesh calling: guest<->guest connections (additive) =====
+         * Everything host<->guest already has — key exchange, HMAC-signed
+         * signaling over the shared room secret, DTLS fingerprint check,
+         * safety number, per-connId WASM session key, the calling feature
+         * itself — applies unchanged to these connections too, because all
+         * of that was already written generically per-peer rather than
+         * hard-coded to "the host". Only the transport addressing and the
+         * connect sequencing are new here.
+         */
+        function sendMeshPeerMessage(toConnId, kind, body) {
+            if (!relayTrickleEnabled()) return;
+            relayWs.send(JSON.stringify({
+                type: 'peer-relay',
+                to: toConnId,
+                payload: JSON.stringify({ kind, body })
+            }));
+        }
+
+        function bindMeshIceCandidateHandler(peer) {
+            peer.remoteIceQueue = peer.remoteIceQueue || [];
+            peer.pc.onicecandidate = (event) => {
+                if (!event.candidate) return;
+                sendMeshPeerMessage(peer.connId, 'ice', JSON.stringify(event.candidate.toJSON()));
+            };
+        }
+
+        function setUpMeshPeerConnection(peer, isInitiator) {
+            peer.isInitiator = isInitiator;
+            peer.isMeshPeer = true;
+            peer.trickleIce = true;
+            bindConnectionSecurityHandlers(peer.pc, peer);
+            bindMediaHandlers(peer); /* ontrack + onnegotiationneeded, same as host<->guest */
+            bindMeshIceCandidateHandler(peer);
+            peer.pc.ondatachannel = (event) => setupDataChannel(peer, peer.connId, event.channel);
+            if (isInitiator) {
+                peer.dc = peer.pc.createDataChannel('aegis-secure', { ordered: true });
+                setupDataChannel(peer, peer.connId);
+            }
+        }
+
+        /*
+         * Initiates a direct connection to another admitted participant.
+         * Called once per mesh edge, by whichever side the deterministic
+         * connId comparison in the 'peer-roster'/'peer-joined' handlers
+         * below elects as initiator — never by both sides, so there's no
+         * glare on the very first offer (renegotiation later, e.g. for
+         * calling, still goes through the existing perfect-negotiation
+         * handling in bindMediaHandlers/handleRenegotiateSignal).
+         */
+        async function initMeshPeer(otherConnId, otherName) {
+            if (peers.has(otherConnId)) return; /* already connecting/connected */
+            const peer = makePeer(otherConnId, otherName);
+            peers.set(otherConnId, peer);
+            peer.ecdhKeyPair = await generateEcdhKeyPair();
+            try {
+                peer.pc = new RTCPeerConnection(await buildRtcConfig());
+                setUpMeshPeerConnection(peer, true);
+                if (callActive) attachTracksToPeer(peer); /* joining an in-progress call */
+                const offer = await peer.pc.createOffer();
+                await peer.pc.setLocalDescription(offer);
+                const aegisMeta = {
+                    pubKey: await exportPublicKeyB64(peer.ecdhKeyPair.publicKey),
+                    dtlsFingerprint: extractDtlsFingerprint(peer.pc.localDescription.sdp),
+                    inviteId: currentInviteId
+                };
+                const wrapped = await wrapSignal(peer.pc.localDescription, aegisMeta);
+                sendMeshPeerMessage(otherConnId, 'offer', wrapped);
+                addMessage(`Connecting to ${otherName || 'participant'}\u2026`, 'system');
+                startPeerConnectWatchdog(peer);
+                updateSecurityPanel();
+            } catch (err) {
+                addMessage(`Could not connect to ${otherName || 'participant'}: ${err.message}`, 'system');
+                peers.delete(otherConnId);
+            }
+        }
+
+        async function handleMeshOffer(fromConnId, fromName, raw) {
+            try {
+                const verified = await parseAndVerifySignal(raw);
+                const { sdp: signalData, aegis } = verified;
+                let peer = peers.get(fromConnId);
+                if (!peer) {
+                    peer = makePeer(fromConnId, fromName);
+                    peers.set(fromConnId, peer);
+                }
+                peer.ecdhKeyPair = await generateEcdhKeyPair();
+                peer.pc = new RTCPeerConnection(await buildRtcConfig());
+                setUpMeshPeerConnection(peer, false);
+                await peer.pc.setRemoteDescription(signalData);
+                await flushRemoteIceQueue(peer);
+                showPeerFingerprint(peer, aegis.dtlsFingerprint);
+                await establishSessionKey(peer, aegis.pubKey);
+                const remoteFp = readNegotiatedRemoteFingerprint(peer.pc);
+                if (remoteFp) peer.expectedFingerprint = remoteFp;
+                await verifyLiveFingerprint(peer, 8, 100);
+                if (callActive) attachTracksToPeer(peer); /* joining an in-progress call */
+                const answer = await peer.pc.createAnswer();
+                await peer.pc.setLocalDescription(answer);
+                const aegisMeta = {
+                    pubKey: await exportPublicKeyB64(peer.ecdhKeyPair.publicKey),
+                    dtlsFingerprint: extractDtlsFingerprint(peer.pc.localDescription.sdp),
+                    inviteId: currentInviteId
+                };
+                const wrapped = await wrapSignal(peer.pc.localDescription, aegisMeta);
+                sendMeshPeerMessage(fromConnId, 'answer', wrapped);
+                startPeerConnectWatchdog(peer);
+                updateSecurityPanel();
+            } catch (err) {
+                console.error('Mesh offer handling failed:', err);
+                addMessage(`Connection from ${fromName || 'a participant'} failed: ${err.message}`, 'system');
+            }
+        }
+
+        async function handleMeshAnswer(fromConnId, raw) {
+            const peer = peers.get(fromConnId);
+            if (!peer?.pc || !peer.isInitiator) return;
+            if (peer.pc.signalingState === 'stable') return; /* already applied */
+            try {
+                const verified = await parseAndVerifySignal(raw);
+                const { sdp: signalData, aegis } = verified;
+                showPeerFingerprint(peer, aegis.dtlsFingerprint);
+                await peer.pc.setRemoteDescription(signalData);
+                await flushRemoteIceQueue(peer);
+                await establishSessionKey(peer, aegis.pubKey);
+                const remoteFp = readNegotiatedRemoteFingerprint(peer.pc);
+                if (remoteFp) peer.expectedFingerprint = remoteFp;
+                await verifyLiveFingerprint(peer, 8, 100);
+                updateSecurityPanel();
+            } catch (err) {
+                console.error('Mesh answer handling failed:', err);
+                addMessage(`Connection to ${peer.name || 'a participant'} failed: ${err.message}`, 'system');
+            }
+        }
+
+        /*
+         * ===== Trust gates added after the security audit =====
+         */
+        const HELD_MAX_ITEMS = 1500;
+
+        function isMeshOnlyPeer(peer) {
+            /* On a guest, every peer except the host is a guest<->guest (mesh) link. */
+            return inviteRole === 'guest' && peer.connId !== HOST_PEER_KEY;
+        }
+
+        /*
+         * Who a message is shown as coming from. A sender-supplied name is only
+         * believed when it comes from the host (who relays other guests'
+         * messages and labels them). The host itself always uses the name of
+         * the connection the message arrived on, so a guest cannot write
+         * "senderName: <someone else>" and have it shown or relayed.
+         */
+        function trustedSenderLabel(peer, payload) {
+            if (inviteRole === 'host') return peer.name || 'Guest';
+            if (peer.connId === HOST_PEER_KEY && typeof payload.senderName === 'string' && payload.senderName) {
+                return payload.senderName.slice(0, DISPLAY_NAME_MAX_CLIENT);
+            }
+            return null;
+        }
+
+        function mustHoldContent(peer) {
+            return !peer.safetyConfirmed || peer.releasingHeld || peer.heldUntilConfirmed.length > 0;
+        }
+
+        function holdUntilConfirmed(peer, item) {
+            if (peer.heldUntilConfirmed.length >= HELD_MAX_ITEMS) {
+                if (!peer.heldOverflowNotified) {
+                    peer.heldOverflowNotified = true;
+                    addMessage(`Too much was sent by ${peer.name || 'the other side'} before the safety code was confirmed. The rest is being discarded.`, 'system');
+                }
+                return;
+            }
+            peer.heldUntilConfirmed.push(item);
+            if (!peer.heldNoticeShown) {
+                peer.heldNoticeShown = true;
+                addMessage(`${peer.name || 'The other side'} sent something. Confirm the safety code to see it.`, 'notice');
+            }
+        }
+
+        async function releaseHeld(peer) {
+            if (peer.releasingHeld) return;
+            peer.releasingHeld = true;
+            try {
+                while (peer.heldUntilConfirmed.length > 0) {
+                    const item = peer.heldUntilConfirmed.shift();
+                    try {
+                        if (item.fileEnvelope) {
+                            await handleSecureFileEnvelope(peer, item.fileEnvelope, true);
+                        } else {
+                            handleIncomingPayload(peer, item.inner);
+                        }
+                    } catch (err) {
+                        addMessage(`Error receiving message: ${err.message}`, 'system');
+                    }
+                }
+            } finally {
+                peer.releasingHeld = false;
+                peer.heldNoticeShown = false;
+            }
+        }
+
+        function showRemoteMediaIfConfirmed(peer) {
+            if (!peer.safetyConfirmed || !peer.remoteStream) return;
+            if (peer.remoteStream.getTracks().length === 0) return;
+            const video = getOrCreateVideoTile(peer.connId, peer.name, false);
+            if (video.srcObject !== peer.remoteStream) video.srcObject = peer.remoteStream;
+            updateCallButtons();
+        }
+
+        /* After a renegotiation, drop any track the other side has stopped
+           sending (their Hang up), so a frozen last frame is not left on screen. */
+        function pruneRemoteTracks(peer) {
+            if (!peer.pc || !peer.remoteStream) return;
+            for (const transceiver of peer.pc.getTransceivers()) {
+                const dir = transceiver.currentDirection;
+                if (dir === 'sendrecv' || dir === 'recvonly') continue;
+                const track = transceiver.receiver && transceiver.receiver.track;
+                if (track && peer.remoteStream.getTracks().includes(track)) {
+                    peer.remoteStream.removeTrack(track);
+                }
+            }
+            if (peer.remoteStream.getTracks().length === 0) removeVideoTile(peer.connId);
+        }
+
+        function announceReady(peer) {
+            if (inviteRole === 'host') {
+                addMessage(`Ready to communicate to ${peer.name || 'guest'}`, 'notice');
+            } else if (peer.connId === HOST_PEER_KEY) {
+                addMessage('Ready to communicate', 'notice');
+            } else {
+                addMessage(`Ready for calls with ${peer.name || 'participant'}.`, 'system');
+            }
+        }
+
+        /* Guest pressed Hang up: leave the whole conversation, not just the call. */
+        function leaveSession() {
+            closeAllPeers(); /* stops camera/mic, closes every connection, clears tiles */
+            if (relayWs) {
+                relayWs.onclose = null; /* do not auto-rejoin the waiting room */
+                relayWs.onerror = null;
+                try { relayWs.close(); } catch (_) { /* already closed */ }
+                relayWs = null;
+            }
+            updateCallButtons();
+            addMessage('You left the conversation. Reload this page to rejoin.', 'notice');
+        }
+
+        /* Called from the Confirm button (app-pre.js) once the user accepts the code. */
+        function onPeerSafetyConfirmed(peer) {
+            if (callActive) attachTracksToPeer(peer);
+            showRemoteMediaIfConfirmed(peer);
+            releaseHeld(peer);
+        }
+
+        /*
+         * ----- Safety number: commit / reveal -----
+         * Before: code = hash(pubA, pubB). Someone holding the invite link and
+         * sitting on the relay could try ~10^6 keypairs offline until both
+         * sides showed the same 6 digits. Now each side adds a random nonce,
+         * and the side that speaks first is committed to its nonce (by hash)
+         * before it sees the other's. An attacker in the middle therefore gets
+         * exactly one blind guess per connection: 1 in 1,000,000.
+         *
+         *   initiator -> commit = SHA-256(nonceI)
+         *   responder -> nonceR
+         *   initiator -> nonceI            (responder checks it against commit)
+         *   code = SHA-256(label, pubI, pubR, nonceI, nonceR) -> 6 digits
+         *
+         * Runs in the clear over the data channel: nothing here is secret, and
+         * a party in the middle of that channel is precisely who it defeats.
+         */
+        function randomNonceB64() {
+            const bytes = new Uint8Array(32);
+            crypto.getRandomValues(bytes);
+            return uint8ArrayToBase64(bytes);
+        }
+
+        async function sha256B64OfString(str) {
+            const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(str));
+            return uint8ArrayToBase64(new Uint8Array(digest));
+        }
+
+        function validNonce(n) {
+            return typeof n === 'string' && n.length >= 40 && n.length <= 64;
+        }
+
+        function sendControl(peer, obj) {
+            if (peer.dc && peer.dc.readyState === 'open') {
+                peer.dc.send(JSON.stringify(obj));
+                return true;
+            }
+            return false;
+        }
+
+        async function myPubKeyB64For(peer) {
+            if (!peer.myPubKeyB64) {
+                peer.myPubKeyB64 = await exportPublicKeyB64(myKeyPairFor(peer).publicKey);
+            }
+            return peer.myPubKeyB64;
+        }
+
+        async function maybeStartSas(peer) {
+            if (!peer.isInitiator || peer.sas) return;
+            if (!peer.sessionKeyReady || !peer.dc || peer.dc.readyState !== 'open') return;
+            const myNonce = randomNonceB64();
+            peer.sas = { myNonce, peerNonce: null, peerCommit: null, done: false, failed: false };
+            sendControl(peer, { type: 'aegis-sas-commit', c: await sha256B64OfString(myNonce) });
+        }
+
+        async function finishSas(peer, nonceInitiator, nonceResponder) {
+            const mine = await myPubKeyB64For(peer);
+            const theirs = peer.peerPubKeyB64;
+            const pubI = peer.isInitiator ? mine : theirs;
+            const pubR = peer.isInitiator ? theirs : mine;
+            const transcript = JSON.stringify(['AegisSAS-v2', pubI, pubR, nonceInitiator, nonceResponder]);
+            const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(transcript));
+            const code = String(new DataView(digest).getUint32(0) % 1000000).padStart(6, '0');
+            peer.safetyCode = code.slice(0, 3) + ' ' + code.slice(3);
+            peer.safetyConfirmed = false;
+            peer.sas.done = true;
+            updateSecurityPanel();
+        }
+
+        function failSas(peer, why) {
+            if (peer.sas) peer.sas.failed = true;
+            peer.safetyCode = null;
+            peer.safetyConfirmed = false;
+            addMessage(`SECURITY WARNING: safety-code exchange with ${peer.name || 'peer'} failed (${why}). Do not trust this connection. Reset and reconnect.`, 'notice warn');
+            updateSecurityPanel();
+        }
+
+        /*
+         * Unencrypted control frames on the data channel (alongside the
+         * heartbeat). Returns true when the frame was one of ours, whether or
+         * not it was accepted, so it never falls through to the chat path.
+         */
+        async function handleControlMessage(peer, msg) {
+            if (!msg || typeof msg.type !== 'string') return false;
+            switch (msg.type) {
+                case 'aegis-sas-commit':
+                    /* Only the responder accepts a commit, and only the first one. */
+                    if (peer.isInitiator || peer.sas || typeof msg.c !== 'string' || msg.c.length > 64) return true;
+                    if (!peer.sessionKeyReady || !peer.peerPubKeyB64) return true;
+                    peer.sas = { myNonce: randomNonceB64(), peerNonce: null, peerCommit: msg.c, done: false, failed: false };
+                    sendControl(peer, { type: 'aegis-sas-nonce', n: peer.sas.myNonce });
+                    return true;
+
+                case 'aegis-sas-nonce':
+                    if (!peer.isInitiator || !peer.sas || peer.sas.peerNonce || peer.sas.failed) return true;
+                    if (!validNonce(msg.n)) { failSas(peer, 'malformed nonce'); return true; }
+                    peer.sas.peerNonce = msg.n;
+                    sendControl(peer, { type: 'aegis-sas-reveal', n: peer.sas.myNonce });
+                    await finishSas(peer, peer.sas.myNonce, msg.n);
+                    return true;
+
+                case 'aegis-sas-reveal':
+                    if (peer.isInitiator || !peer.sas || peer.sas.peerNonce || peer.sas.failed) return true;
+                    if (!validNonce(msg.n)) { failSas(peer, 'malformed reveal'); return true; }
+                    peer.sas.peerNonce = msg.n; /* set before awaiting: one reveal only */
+                    if ((await sha256B64OfString(msg.n)) !== peer.sas.peerCommit) {
+                        failSas(peer, 'reveal does not match commitment');
+                        return true;
+                    }
+                    await finishSas(peer, msg.n, peer.sas.myNonce);
+                    return true;
+
+                case 'aegis-reneg':
+                    await handleAuthenticatedReneg(peer, msg);
+                    return true;
+
+                default:
+                    return false;
+            }
+        }
+
+        /*
+         * ----- Renegotiation: authenticated, and never via the relay -----
+         * The first offer/answer is HMAC-signed with the room secret. Later
+         * ones (adding/removing camera and mic) used to be applied straight
+         * from the relay with no check at all. They now go peer-to-peer over
+         * the data channel, each one carrying:
+         *   - an HMAC keyed by this pair's own session key (which only the two
+         *     ends hold, unlike the room secret every invitee has),
+         *   - the sender's public key in the MAC input (no reflecting a
+         *     message back at its author),
+         *   - a strictly increasing sequence number (no replays),
+         * and the SDP inside must still carry the DTLS fingerprint that was
+         * verified when the connection was first set up.
+         */
+        function renegMacInput(senderPubB64, seq, desc) {
+            return `AegisReneg-v1|${senderPubB64}|${seq}|${desc.type}|${desc.sdp}`;
+        }
+
+        function sdpKeepsFingerprint(sdp, expected) {
+            if (!expected) return false;
+            const want = normalizeFingerprint(expected);
+            const lines = String(sdp).match(/^a=fingerprint:[^\r\n]*/gim) || [];
+            if (lines.length === 0) return false;
+            return lines.every((line) => {
+                const m = /^a=fingerprint:sha-256\s+(.+)$/i.exec(line.trim());
+                return !!m && normalizeFingerprint(m[1]) === want;
+            });
+        }
+
+        async function sendAuthenticatedReneg(peer, description) {
+            if (!peer.sessionKeyHex || !peer.dc || peer.dc.readyState !== 'open') {
+                throw new Error('secure channel not open');
+            }
+            const seq = ++peer.renegSendSeq; /* taken before any await: order is preserved */
+            const desc = { type: description.type, sdp: description.sdp };
+            const mac = await hmacSign(peer.sessionKeyHex, renegMacInput(await myPubKeyB64For(peer), seq, desc));
+            if (!sendControl(peer, { type: 'aegis-reneg', seq, desc, mac })) {
+                throw new Error('secure channel closed');
+            }
+        }
+
+        async function handleAuthenticatedReneg(peer, msg) {
+            const desc = msg.desc;
+            const reject = (why) => console.warn(`Rejected renegotiation from ${peer.name || peer.connId}: ${why}`);
+            if (!peer.sessionKeyReady || !peer.sessionKeyHex || !peer.peerPubKeyB64) return reject('no session key');
+            if (!desc || (desc.type !== 'offer' && desc.type !== 'answer') || typeof desc.sdp !== 'string') return reject('malformed');
+            if (!Number.isInteger(msg.seq) || msg.seq <= peer.renegRecvSeq) return reject('stale or replayed');
+            if (typeof msg.mac !== 'string') return reject('missing MAC');
+            let macOk = false;
+            try {
+                macOk = await hmacVerify(peer.sessionKeyHex, renegMacInput(peer.peerPubKeyB64, msg.seq, desc), msg.mac);
+            } catch (_) { /* bad base64 */ }
+            if (!macOk) return reject('bad MAC');
+            if (msg.seq <= peer.renegRecvSeq) return reject('stale or replayed'); /* re-check after await */
+            if (!sdpKeepsFingerprint(desc.sdp, peer.expectedFingerprint)) {
+                addMessage(`SECURITY WARNING: ${peer.name || 'peer'} tried to change the connection's DTLS identity mid-call. Change refused.`, 'notice warn');
+                return reject('DTLS fingerprint changed');
+            }
+            peer.renegRecvSeq = msg.seq;
+            await applyRenegotiation(peer, desc);
+        }
 
         function closePeer(connId) {
             const peer = peers.get(connId);
@@ -1745,6 +2291,7 @@
 
         function closeAllPeers() {
             for (const connId of [...peers.keys()]) closePeer(connId);
+            meshPeerNames.clear();
             if (localMediaStream) {
                 for (const track of localMediaStream.getTracks()) { try { track.stop(); } catch (_) { /* ignore */ } }
                 localMediaStream = null;
@@ -1977,14 +2524,14 @@
 
             if (!hostEcdhKeyPair) {
                 hostEcdhKeyPair = await generateEcdhKeyPair();
+            }
+            try {
                 const hostPubKey = await exportPublicKeyB64(hostEcdhKeyPair.publicKey);
-                try {
-                    await registerPublicKey('host', hostPubKey);
-                } catch (err) {
-                    addMessage(`Key transparency: ${err.message}`, 'system');
-                    peers.delete(connId);
-                    throw err;
-                }
+                await registerPublicKey('host', hostPubKey);
+            } catch (err) {
+                addMessage(`Key transparency: ${err.message}`, 'system');
+                peers.delete(connId);
+                throw err;
             }
 
             peer.pc = new RTCPeerConnection(await buildRtcConfig());
@@ -2270,7 +2817,7 @@
                 }
 
                 case 'host-away':
-                    addMessage(msg.message || 'Host temporarily offline — ask them to reopen the invite link.', 'system');
+                    addMessage(msg.message || 'Host temporarily offline — ask them to reopen the invite link.', 'notice');
                     break;
 
                 case 'host-back':
@@ -2289,10 +2836,10 @@
                     renderWaitingRoom();
                     if (leavingPeer) {
                         leavingPeer.leftNoticeSent = true;
-                        addMessage(`${leftName} has left.`, 'system');
+                        addMessage(`${leftName} has left.`, 'notice');
                         closePeer(msg.connId);
                     } else if (msg.wasAdmitted) {
-                        addMessage(`${leftName} has left.`, 'system');
+                        addMessage(`${leftName} has left.`, 'notice');
                     } else {
                         addMessage(`${leftName} left the waiting room.`, 'system');
                     }
@@ -2304,11 +2851,11 @@
                     break;
 
                 case 'denied':
-                    addMessage(`Not admitted: ${msg.reason || 'host declined'}`, 'system');
+                    addMessage(`Not admitted: ${msg.reason || 'host declined'}`, 'notice');
                     break;
 
                 case 'room-closed':
-                    addMessage(`Waiting room closed: ${msg.reason || ''}`, 'system');
+                    addMessage(`Waiting room closed: ${msg.reason || ''}`, 'notice');
                     waitingGuests.clear();
                     renderWaitingRoom();
                     closeAllPeers();
@@ -2368,8 +2915,43 @@
                     } else {
                         renegPeer = peers.get(msg.connId);
                     }
-                    if (renegPeer && msg.payload != null) {
-                        await handleRenegotiateSignal(renegPeer, msg.payload);
+                    /* Renegotiation is only accepted over the authenticated data
+                       channel now ('aegis-reneg'). Anything the relay delivers under
+                       this name is ignored. */
+                    if (renegPeer) console.warn('Ignored relay-delivered renegotiation.');
+                    break;
+                }
+
+                /* ----- mesh calling: guest<->guest, only ever sent to guests ----- */
+                case 'peer-roster':
+                    for (const p of (msg.peers || [])) {
+                        meshPeerNames.set(p.connId, p.name);
+                        if (myConnId && myConnId < p.connId) initMeshPeer(p.connId, p.name);
+                        /* else: the other side's connId sorts lower — they initiate,
+                           we'll get their offer via 'peer-relay' below. */
+                    }
+                    break;
+
+                case 'peer-joined':
+                    meshPeerNames.set(msg.connId, msg.name);
+                    if (myConnId && myConnId < msg.connId) initMeshPeer(msg.connId, msg.name);
+                    break;
+
+                case 'peer-relay': {
+                    const fromId = msg.from;
+                    if (!fromId || msg.payload == null) break;
+                    let inner;
+                    try { inner = JSON.parse(msg.payload); } catch (_) { break; }
+                    if (inner.kind === 'offer') {
+                        await handleMeshOffer(fromId, meshPeerNames.get(fromId) || null, inner.body);
+                    } else if (inner.kind === 'answer') {
+                        await handleMeshAnswer(fromId, inner.body);
+                    } else if (inner.kind === 'ice') {
+                        const meshPeer = peers.get(fromId);
+                        if (meshPeer) await addRemoteIceCandidate(meshPeer, JSON.parse(inner.body));
+                    } else if (inner.kind === 'renegotiate') {
+                        const meshPeer = peers.get(fromId);
+                        if (meshPeer) console.warn('Ignored relay-delivered renegotiation.');
                     }
                     break;
                 }
@@ -2473,6 +3055,7 @@
                 addMessage(`Secure P2P channel established${peer.name ? ' with ' + peer.name : ''}.`, 'system');
                 startPeerHeartbeat(peer);
                 startFingerprintVerificationPoll(peer);
+                maybeStartSas(peer).catch((err) => console.error('Safety code start failed:', err));
                 const verified = await verifyLiveFingerprint(peer);
                 if (!verified && peer.expectedFingerprint) {
                     addMessage('Verifying DTLS fingerprint — message box unlocks when complete.', 'system');
@@ -2510,6 +3093,7 @@
                     }
                     const envelope = JSON.parse(event.data);
                     if (handleHeartbeatMessage(peer, envelope)) return;
+                    if (await handleControlMessage(peer, envelope)) return;
                     if (!wasmReady || !peer.sessionKeyReady || !peer.fingerprintVerified) {
                         peer.pendingIncoming.push(envelope);
                         if (!peer.pendingNoticeShown) {
