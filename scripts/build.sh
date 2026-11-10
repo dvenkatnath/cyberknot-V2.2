@@ -33,7 +33,8 @@ echo "==> Generating icons..."
 ICON_SRC="$ROOT/assets/favicon.png"
 ICON_DIR="$ROOT/assets/icons"
 mkdir -p "$ICON_DIR"
-sips --cropToHeightWidth 404 404 "$ICON_SRC" --out "$ICON_DIR/square.png" >/dev/null 2>&1
+# assets/favicon.png is already a 512x512 square (CyberKnot icon), so no crop is needed.
+cp "$ICON_SRC" "$ICON_DIR/square.png"
 for size in 16 32 48 180 192; do
   sips -z "$size" "$size" "$ICON_DIR/square.png" --out "$ICON_DIR/favicon-${size}.png" >/dev/null 2>&1
 done

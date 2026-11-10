@@ -2,8 +2,8 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-PROJECT_NAME="${RAILWAY_PROJECT:-Aegis-chat-multi}"
-SERVICE_NAME="${RAILWAY_SERVICE:-aegis-chat}"
+PROJECT_NAME="${RAILWAY_PROJECT:-Aegis-chat-Multi}"
+SERVICE_NAME="${RAILWAY_SERVICE:-Aegis-chat-multi}"
 
 cd "$ROOT"
 
@@ -17,8 +17,15 @@ if ! railway whoami >/dev/null 2>&1; then
   exit 1
 fi
 
-echo "==> Linking project: ${PROJECT_NAME}"
-railway link --project "$PROJECT_NAME" 2>/dev/null || true
+if railway status >/dev/null 2>&1; then
+  echo "==> Already linked to a Railway project, skipping link"
+else
+  echo "==> Linking project: ${PROJECT_NAME}"
+  railway link --project "$PROJECT_NAME" </dev/null || {
+    echo "ERROR: could not link. Run: railway link   (then pick the project) and re-run this script." >&2
+    exit 1
+  }
+fi
 
 echo "==> Setting production variables"
 railway variable set NODE_ENV=production --service "$SERVICE_NAME" 2>/dev/null || \
