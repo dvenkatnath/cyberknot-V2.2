@@ -226,6 +226,10 @@ function buildIceServers() {
 
 /* ---------- Metered managed TURN (Open Relay free tier via REST API) ---------- */
 let meteredIceCache = null;
+/* Credentials expire after 48 h and are re-issued every 12 h, so a copied
+ * credential stops working on its own and a client always has >= 36 h left. */
+const METERED_CRED_TTL_S = 48 * 60 * 60;
+const METERED_CACHE_MS  = 12 * 60 * 60 * 1000;
 
 function meteredAppSubdomain() {
   const raw = METERED_APP_NAME.trim();
@@ -276,7 +280,10 @@ async function fetchMeteredIceServers() {
     const res = await fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ label: `aegis-${Math.floor(Date.now() / 1000)}` }),
+      body: JSON.stringify({
+        label: `aegis-${Math.floor(Date.now() / 1000)}`,
+        expiryInSeconds: METERED_CRED_TTL_S,
+      }),
       signal: AbortSignal.timeout(15000),
     });
     const data = await res.json().catch(() => ({}));
@@ -292,7 +299,7 @@ async function fetchMeteredIceServers() {
       iceTransportPolicy: 'all',
       turnSource: 'metered-secret',
     };
-    meteredIceCache = { payload, expiresAt: Date.now() + 23 * 60 * 60 * 1000 };
+    meteredIceCache = { payload, expiresAt: Date.now() + METERED_CACHE_MS };
     return payload;
   }
 
@@ -340,6 +347,45 @@ async function buildIceConfigResponse() {
 /* ---------- Express app ---------- */
 const app = express();
 app.disable('x-powered-by');
+
+/* Behind Railway/Caddy the client IP arrives in X-Forwarded-For. Without
+ * trust proxy every user shares the proxy's IP and therefore one rate-limit
+ * bucket. Production defaults to one trusted hop; override with
+ * TRUST_PROXY_HOPS (0 disables). */
+const TRUST_PROXY_HOPS = process.env.TRUST_PROXY_HOPS !== undefined
+  ? Number(process.env.TRUST_PROXY_HOPS)
+  : (process.env.NODE_ENV === 'production' ? 1 : 0);
+app.set('trust proxy', Number.isInteger(TRUST_PROXY_HOPS) && TRUST_PROXY_HOPS >= 0 ? TRUST_PROXY_HOPS : 0);
+
+/* Security headers. 'unsafe-inline' is still needed because the pages use
+ * inline <script>/<style>; 'wasm-unsafe-eval' is for the CyberKnot WASM
+ * module. Moving the inline code to files would let both be tightened. */
+const CSP = [
+  "default-src 'self'",
+  "script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'",
+  "style-src 'self' 'unsafe-inline'",
+  "img-src 'self' data: blob:",
+  "media-src 'self' blob:",
+  "font-src 'self' data:",
+  "connect-src 'self' ws: wss:",
+  "worker-src 'self' blob:",
+  "object-src 'none'",
+  "base-uri 'self'",
+  "form-action 'self'",
+  "frame-ancestors 'none'",
+].join('; ');
+app.use((req, res, next) => {
+  res.setHeader('Content-Security-Policy', CSP);
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('X-Frame-Options', 'DENY');
+  res.setHeader('Referrer-Policy', 'no-referrer');
+  res.setHeader('Permissions-Policy', 'camera=(self), microphone=(self), geolocation=(), payment=(), usb=()');
+  res.setHeader('Cross-Origin-Resource-Policy', 'same-origin');
+  if (process.env.NODE_ENV === 'production' && req.secure) {
+    res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
+  }
+  next();
+});
 app.use(express.json({ limit: '64kb' }));
 
 /* CORS */
@@ -419,7 +465,14 @@ setInterval(() => {
   }
 }, RATE_WINDOW_MS);
 
-const blobStore = createBlobStore({ dataDir: DATA_DIR, rateLimit, rateLimitParts });
+/* Uploads are only accepted for an invite whose host key is registered and
+ * not expired, so a random caller cannot park data on the server. */
+function inviteIsRegistered(inviteId) {
+  const entry = readKeys()[`${inviteId}:host`];
+  if (!entry) return false;
+  return Date.now() - new Date(entry.registeredAt).getTime() <= KEY_TTL_MS;
+}
+const blobStore = createBlobStore({ dataDir: DATA_DIR, rateLimit, rateLimitParts, isKnownInvite: inviteIsRegistered });
 blobStore.mount(app, express);
 
 /* ---------- timing-safe proof verification (FIX-E) ---------- */
@@ -548,7 +601,30 @@ app.get('/health', (_req, res) => {
   res.json({ ok: true, service: 'aegis-chat-whatsapp', blobStore: true });
 });
 
-app.get('/api/ice-config', async (_req, res) => {
+/* The page needs TURN credentials before the user has joined anything, so this
+ * cannot require a session. It is rate-limited per IP, refuses cross-site
+ * browser requests, is never cached, and the credential itself expires. */
+const iceBuckets = new Map();
+const ICE_RATE_MAX = 60;
+function rateLimitIce(req, res, next) {
+  const ip = req.ip || req.connection.remoteAddress || 'unknown';
+  const now = Date.now();
+  let b = iceBuckets.get(ip);
+  if (!b || now - b.windowStart > RATE_WINDOW_MS) { b = { windowStart: now, count: 0 }; iceBuckets.set(ip, b); }
+  b.count++;
+  if (b.count > ICE_RATE_MAX) return res.status(429).json({ error: 'Too many requests. Try again later.' });
+  next();
+}
+setInterval(() => {
+  const cutoff = Date.now() - RATE_WINDOW_MS;
+  for (const [ip, b] of iceBuckets.entries()) if (b.windowStart < cutoff) iceBuckets.delete(ip);
+}, RATE_WINDOW_MS).unref();
+
+app.get('/api/ice-config', rateLimitIce, async (req, res) => {
+  if (req.get('sec-fetch-site') === 'cross-site') {
+    return res.status(403).json({ error: 'cross-site requests are not allowed' });
+  }
+  res.setHeader('Cache-Control', 'no-store');
   try {
     res.json(await buildIceConfigResponse());
   } catch (err) {
@@ -629,7 +705,18 @@ app.get('/api/v1/keys/:inviteId/:role', (req, res) => {
   res.json(entry);
 });
 
+/* The raw log lists invite IDs and key fingerprints. The client never reads
+ * it, so it is operator-only: send "Authorization: Bearer <LOG_SECRET>". */
+function isOperator(req) {
+  const m = /^Bearer (.+)$/.exec(req.get('authorization') || '');
+  if (!m) return false;
+  const a = Buffer.from(m[1]);
+  const b = Buffer.from(LOG_SECRET);
+  return a.length === b.length && crypto.timingSafeEqual(a, b);
+}
+
 app.get('/api/v1/transparency', (req, res) => {
+  if (!isOperator(req)) return res.status(404).json({ error: 'Not found' });
   const limit = Math.min(Number(req.query.limit) || 100, 1000);
   if (!fs.existsSync(LOG_FILE)) {
     return res.json({ entries: [] });

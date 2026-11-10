@@ -8,13 +8,16 @@ const UUID_V4_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9
 
 const BLOB_TTL_MS = Number(process.env.BLOB_TTL_MS || 72 * 60 * 60 * 1000);
 const BLOB_MAX_BYTES = Number(process.env.BLOB_MAX_BYTES || 500 * 1024 * 1024);
+const BLOB_TOTAL_MAX_BYTES = Number(process.env.BLOB_TOTAL_MAX_BYTES || 2 * 1024 * 1024 * 1024);
+const BLOB_MAX_PER_INVITE = Number(process.env.BLOB_MAX_PER_INVITE || 20);
+const BLOB_MAX_BYTES_PER_INVITE = Number(process.env.BLOB_MAX_BYTES_PER_INVITE || 1024 * 1024 * 1024);
 const BLOB_MAX_PART_BYTES = Number(process.env.BLOB_MAX_PART_BYTES || 6 * 1024 * 1024);
 
 function isValidProof(proof) {
   return typeof proof === 'string' && proof.length > 0 && proof.length <= 512;
 }
 
-function createBlobStore({ dataDir, rateLimit, rateLimitParts }) {
+function createBlobStore({ dataDir, rateLimit, rateLimitParts, isKnownInvite }) {
   // Fall back to the strict limiter if a looser one wasn't supplied, so this
   // module still works standalone / in tests.
   const partLimit = rateLimitParts || rateLimit;
@@ -108,6 +111,20 @@ function createBlobStore({ dataDir, rateLimit, rateLimitParts }) {
       if (manifests.has(blobId)) {
         return res.status(409).json({ error: 'blobId already exists' });
       }
+      if (typeof isKnownInvite === 'function' && !isKnownInvite(inviteId)) {
+        return res.status(403).json({ error: 'unknown or expired invite' });
+      }
+      let totalBytes = 0, inviteBytes = 0, inviteCount = 0;
+      for (const m of manifests.values()) {
+        totalBytes += m.size;
+        if (m.inviteId === inviteId) { inviteBytes += m.size; inviteCount++; }
+      }
+      if (totalBytes + size > BLOB_TOTAL_MAX_BYTES) {
+        return res.status(507).json({ error: 'server storage is full, try again later' });
+      }
+      if (inviteCount >= BLOB_MAX_PER_INVITE || inviteBytes + size > BLOB_MAX_BYTES_PER_INVITE) {
+        return res.status(413).json({ error: 'upload limit reached for this invite' });
+      }
 
       fs.mkdirSync(blobDir(blobId), { recursive: true });
       const meta = {
@@ -119,6 +136,7 @@ function createBlobStore({ dataDir, rateLimit, rateLimitParts }) {
         token,
         proof,
         partsReceived: [],
+        partSizes: {},
         complete: false,
         createdAt: Date.now()
       };
@@ -147,6 +165,14 @@ function createBlobStore({ dataDir, rateLimit, rateLimitParts }) {
         return res.status(413).json({ error: 'part too large' });
       }
 
+      /* Never store more than the size declared at init. */
+      meta.partSizes = meta.partSizes || {};
+      let stored = 0;
+      for (const [i, n] of Object.entries(meta.partSizes)) if (Number(i) !== index) stored += n;
+      if (stored + req.body.length > meta.size) {
+        return res.status(413).json({ error: 'upload exceeds the declared size' });
+      }
+      meta.partSizes[index] = req.body.length;
       fs.writeFileSync(partPath(blobId, index), req.body);
       if (!meta.partsReceived.includes(index)) {
         meta.partsReceived.push(index);

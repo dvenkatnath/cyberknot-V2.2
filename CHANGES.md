@@ -427,3 +427,39 @@ relay unsigned, and ICE-restart recovery was not exercised.
 **Tested**: 38 checks across three headless Chromium tabs against the real
 keyserver, all passing. Not covered: Firefox, Safari, iPhone, and the
 mobile page in a real browser.
+
+## Server hardening (before wider use)
+
+- **Real client IPs behind Railway.** `trust proxy` is on in production (one
+  hop; override with `TRUST_PROXY_HOPS`). Before this, every user shared the
+  proxy's IP and therefore one rate-limit bucket.
+- **Security headers** on every response: Content-Security-Policy,
+  X-Frame-Options DENY, nosniff, Referrer-Policy no-referrer,
+  Permissions-Policy (camera and microphone only for this site),
+  Cross-Origin-Resource-Policy, and HSTS on HTTPS in production. The CSP still
+  allows inline scripts and styles ('unsafe-inline') because the pages use
+  them; moving them into files would let that be tightened.
+- **`/api/ice-config`** (TURN credentials): rate-limited per IP (60 per 15
+  minutes), refuses cross-site browser requests, never cached, and the Metered
+  credential now expires after 48 hours and is re-issued every 12 hours. It
+  still has to be reachable without a session, because a guest needs it before
+  joining. Closing that fully means sending the ICE servers over the
+  authenticated WebSocket after admission, which is a client change not done
+  here.
+- **Transparency log** (`/api/v1/transparency`) is operator-only: it returns
+  404 unless `Authorization: Bearer <LOG_SECRET>` is sent. It listed invite
+  IDs and key data to anyone. The client never read it.
+- **File uploads (blob store):** accepted only for an invite whose host key is
+  registered and unexpired; at most 20 blobs and 1 GB per invite and 2 GB in
+  total (`BLOB_MAX_PER_INVITE`, `BLOB_MAX_BYTES_PER_INVITE`,
+  `BLOB_TOTAL_MAX_BYTES`); and a part that would take a blob past its declared
+  size is refused. Note that registering a host key only needs a well-formed
+  request, so this limits the damage rather than preventing a determined
+  abuser; the caps are what bound it.
+- If the server loses its key store (a redeploy without a volume), uploads for
+  existing invites are refused until the host re-registers its key, which
+  happens the next time it admits a guest.
+
+**Tested:** 18 direct server checks (headers, log lock, ICE guard and rate
+limit, upload gate and caps) all pass, and the 38 browser checks still pass
+with the new headers.
