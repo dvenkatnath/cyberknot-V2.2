@@ -21,3 +21,6 @@ Thumbs.db
 
 # Archives
 *.zip
+
+# Local backups (never upload or commit)
+backups/
