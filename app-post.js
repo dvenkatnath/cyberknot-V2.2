@@ -2083,7 +2083,7 @@
             } else if (peer.connId === HOST_PEER_KEY) {
                 addMessage('Ready to communicate', 'notice');
             } else {
-                addMessage(`Ready for calls with ${peer.name || 'participant'}.`, 'system');
+                addMessage(`Ready for calls with ${peer.name || 'participant'}.`, 'notice');
             }
         }
 
@@ -2174,6 +2174,12 @@
             peer.safetyConfirmed = false;
             peer.sas.done = true;
             updateSecurityPanel();
+            /* A guest has a separate safety code with every other guest. Until both
+             * confirm it, media between them is withheld, so say so out loud. */
+            if (isMeshOnlyPeer(peer)) {
+                const who = peer.name || 'the other guest';
+                addMessage(`Safety code with ${who}: ${peer.safetyCode}. Compare it with ${who} by voice or another channel, then press "Confirm — codes match" for ${who} in the Signal & Keys panel (on a phone, open the menu). Until you both confirm, you will not see or hear each other.`, 'notice');
+            }
         }
 
         function failSas(peer, why) {
