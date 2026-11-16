@@ -1,0 +1,59 @@
+# CyberKnot on a single Hetzner server: app + HTTPS (Caddy) + TURN relay (coturn).
+# Run from this folder:  docker compose up -d --build
+services:
+  app:
+    build:
+      context: ../..
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    environment:
+      PORT: "8080"
+      NODE_ENV: production
+      CORS_ORIGIN: https://${DOMAIN}
+      LOG_SECRET: ${LOG_SECRET}
+      TURN_SECRET: ${TURN_SECRET}
+      TURN_HOST: ${DOMAIN}
+      TURN_PORT: "3478"
+      STUN_URL: stun:${DOMAIN}:3478
+    volumes:
+      - app_data:/app/data
+    expose:
+      - "8080"
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    environment:
+      DOMAIN: ${DOMAIN}
+      ACME_EMAIL: ${ACME_EMAIL}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - app
+
+  coturn:
+    image: coturn/coturn:4.6.3
+    restart: unless-stopped
+    network_mode: host
+    environment:
+      TURN_SECRET: ${TURN_SECRET}
+      DOMAIN: ${DOMAIN}
+    volumes:
+      - ./coturn/turnserver.conf:/etc/coturn/turnserver.conf.template:ro
+    entrypoint:
+      - /bin/sh
+      - -c
+      - |
+        sed -e "s|\$${TURN_SECRET}|$$TURN_SECRET|g" -e "s|\$${DOMAIN}|$$DOMAIN|g" /etc/coturn/turnserver.conf.template > /tmp/turnserver.conf
+        exec turnserver -c /tmp/turnserver.conf
+
+volumes:
+  app_data:
+  caddy_data:
+  caddy_config:

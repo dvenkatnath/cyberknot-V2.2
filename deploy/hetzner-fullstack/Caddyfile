@@ -1,0 +1,19 @@
+{
+  email {$ACME_EMAIL}
+}
+
+{$DOMAIN} {
+  # The app sets its own CSP, Permissions-Policy and other security headers.
+  # Caddy only adds HSTS, so camera/mic permission is not accidentally blocked.
+  header Strict-Transport-Security "max-age=31536000; includeSubDomains"
+
+  # Encrypted file parts are random bytes: compressing them only wastes CPU.
+  handle /api/v1/blobs/* {
+    reverse_proxy app:8080
+  }
+
+  handle {
+    encode gzip zstd
+    reverse_proxy app:8080
+  }
+}

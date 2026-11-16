@@ -1,0 +1,40 @@
+# Caddy for chat.zetaegis.com on the Hetzner server (replaces /etc/caddy/Caddyfile).
+# What changed from version 1:
+#  - The old Permissions-Policy "camera=(), microphone=()" blocked camera and mic.
+#    The app now sets its own Permissions-Policy, CSP and other security headers,
+#    so Caddy only adds HSTS and hides the Server header.
+#  - Encrypted file parts are no longer compressed (it only slows downloads).
+chat.zetaegis.com {
+    header {
+        Strict-Transport-Security "max-age=31536000; includeSubDomains"
+        -Server
+    }
+
+    @force_desktop {
+        path /mobile.html
+        header Cookie *aegis-ui=desktop*
+    }
+    redir @force_desktop /?{http.request.uri.query} 302
+
+    @force_mobile {
+        path /
+        header Cookie *aegis-ui=mobile*
+    }
+    redir @force_mobile /mobile.html?{http.request.uri.query} 302
+
+    @mobile_ua {
+        path /
+        not header Cookie *aegis-ui=desktop*
+        header_regexp User-Agent "(?i)(android|iphone|ipad|ipod|mobile|iemobile|blackberry|opera mini)"
+    }
+    redir @mobile_ua /mobile.html?{http.request.uri.query} 302
+
+    handle /api/v1/blobs/* {
+        reverse_proxy localhost:8080
+    }
+
+    handle {
+        encode gzip zstd
+        reverse_proxy localhost:8080
+    }
+}
